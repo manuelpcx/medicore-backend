@@ -38,10 +38,12 @@ Ejemplo de instrucción correcta para un subagente:
 > hallazgos en `progress/research_ids.md`. Tu respuesta a mí debe ser solo:
 > `done -> progress/research_ids.md` o un mensaje de bloqueo."
 
-> **Referencia ejecutable:** `scripts/demo_orchestration.py` muestra esta
-> regla en práctica. Ejecuta `python3 -m scripts.demo_orchestration` para
-> ver cómo 3 subagentes en paralelo escriben informes a disco y el líder
-> solo recibe la tabla de referencias.
+> **En este repo en práctica:** tras una sesión real los informes quedan en
+> `progress/impl_<feature>.md` (implementer) y `progress/review_<feature>.md`
+> (reviewer). Tú, como líder, nunca verás su contenido en chat — solo una
+> referencia del tipo `done -> progress/impl_<feature>.md`. Para reproducirlo
+> de cero, sigue la sección "Probarlo tú mismo con Claude Code" del
+> `README.md`.
 
 ## Escalado de esfuerzo
 
