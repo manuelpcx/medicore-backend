@@ -2,6 +2,7 @@ node_modules/
 dist/
 .env
 .env.local
+pnpm-lock.yaml
 uploads/*
 !uploads/.gitkeep
 /data/

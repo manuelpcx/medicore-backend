@@ -1,0 +1,9 @@
+# Fuerza npm en Railway — ignorar pnpm-lock.yaml que hace que nixpacks elija pnpm
+[phases.install]
+cmds = ["npm install --legacy-peer-deps"]
+
+[phases.build]
+cmds = ["npm run build"]
+
+[start]
+cmd = "npm run start:prod"
