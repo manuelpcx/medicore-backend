@@ -65,7 +65,7 @@ export class NotificationsService {
   // ── Interno ─────────────────────────────────────────────────────────────────
 
   private async send(options: { to: string; subject: string; html: string }): Promise<void> {
-    const from = this.config.get<string>('MAIL_FROM', 'Medi-History <no-reply@medi-history.app>');
+    const from = this.config.get<string>('MAIL_FROM', 'Medicore <no-reply@medicore.app>');
     try {
       await this.transporter.sendMail({ from, ...options });
       this.logger.log(`Email enviado a ${options.to} — "${options.subject}"`);

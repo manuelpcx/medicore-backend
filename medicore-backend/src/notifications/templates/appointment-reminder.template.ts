@@ -49,7 +49,7 @@ export function appointmentHtml(data: AppointmentEmailData): string {
               <table cellpadding="0" cellspacing="0" border="0">
                 <tr>
                   <td style="background-color:#2C6E5A; border-radius:10px; padding:7px 16px;">
-                    <span style="color:#ffffff; font-size:18px; font-weight:700; letter-spacing:1px;">Medi-History</span>
+                    <span style="color:#ffffff; font-size:18px; font-weight:700; letter-spacing:1px;">Medicore</span>
                   </td>
                 </tr>
               </table>
@@ -129,7 +129,7 @@ export function appointmentHtml(data: AppointmentEmailData): string {
                         <td style="background-color:#EBF2FA; border-left:3px solid #1E4D7B; border-radius:0 6px 6px 0; padding:12px 16px;">
                           <p style="margin:0; color:#1E4D7B; font-size:13px; line-height:1.5;">
                             💡 <strong>Tip:</strong> Recuerda llevar tu historial médico completo.
-                            Puedes generarlo desde la sección <em>Acceso médico</em> de Medi-History.
+                            Puedes generarlo desde la sección <em>Acceso médico</em> de Medicore.
                           </p>
                         </td>
                       </tr>
@@ -145,7 +145,7 @@ export function appointmentHtml(data: AppointmentEmailData): string {
           <tr>
             <td style="padding:20px 0; text-align:center;">
               <p style="margin:0; color:#A09C96; font-size:12px; line-height:1.6;">
-                Para desactivar los recordatorios, ingresa a tu perfil en Medi-History.<br>
+                Para desactivar los recordatorios, ingresa a tu perfil en Medicore.<br>
                 Este correo fue enviado a ${data.email}
               </p>
             </td>

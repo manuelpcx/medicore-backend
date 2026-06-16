@@ -47,7 +47,7 @@ async function bootstrap() {
   // ── Swagger (solo en non-prod para no exponer la especificación) ────────
   if (process.env.NODE_ENV !== 'production') {
     const config = new DocumentBuilder()
-      .setTitle('Medi-History API')
+      .setTitle('Medicore API')
       .setDescription('API de historial médico personal centralizado')
       .setVersion('1.0')
       .addBearerAuth()
@@ -59,6 +59,6 @@ async function bootstrap() {
   // ── Port ────────────────────────────────────────────────────────────────
   const port = process.env.PORT || 3000;
   await app.listen(port, '0.0.0.0'); // 0.0.0.0 requerido en Railway
-  console.log(`🏥 Medi-History API en puerto ${port} [${process.env.NODE_ENV ?? 'development'}]`);
+  console.log(`🏥 Medicore API en puerto ${port} [${process.env.NODE_ENV ?? 'development'}]`);
 }
 bootstrap();
