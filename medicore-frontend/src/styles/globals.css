@@ -1,0 +1,81 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;0,9..40,600;1,9..40,400&display=swap');
+
+:root {
+  --bg: #F5F2EC;
+  --surface: #FDFCFA;
+  --surface2: #F0EDE6;
+  --border: #E2DDD5;
+  --text: #1A1916;
+  --text2: #6B6760;
+  --text3: #A09C96;
+  --accent: #2C6E5A;
+  --accent2: #E8F4F0;
+  --accent3: #1A4D3E;
+  --red: #C0392B;
+  --red2: #FDF0EE;
+  --amber: #B8711A;
+  --amber2: #FDF5E8;
+  --blue: #1E4D7B;
+  --blue2: #EBF2FA;
+  --purple: #5B3FA0;
+  --purple2: #F0ECF9;
+  --sidebar-w: 220px;
+  --radius-card: 12px;
+  --radius-btn: 8px;
+  --shadow-sm: 0 1px 3px rgba(26,25,22,0.06), 0 1px 2px rgba(26,25,22,0.04);
+  --shadow: 0 4px 12px rgba(26,25,22,0.08), 0 2px 4px rgba(26,25,22,0.04);
+  --shadow-lg: 0 16px 40px rgba(26,25,22,0.12);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+html { font-size: 16px; }
+
+body {
+  font-family: 'DM Sans', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, h3, .serif { font-family: 'DM Serif Display', Georgia, serif; }
+
+a { color: inherit; text-decoration: none; }
+
+button { cursor: pointer; font-family: inherit; }
+
+input, textarea, select {
+  font-family: inherit;
+  font-size: inherit;
+}
+
+::-webkit-scrollbar { width: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--text3); }
+
+/* Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes slideIn {
+  from { opacity: 0; transform: translateX(-8px); }
+  to   { opacity: 1; transform: translateX(0); }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+@keyframes toastIn {
+  from { opacity: 0; transform: translateY(12px) scale(0.97); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes countdown {
+  from { stroke-dashoffset: 0; }
+  to   { stroke-dashoffset: 283; }
+}
