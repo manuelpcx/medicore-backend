@@ -5,7 +5,7 @@
     "buildCommand": "npm install --legacy-peer-deps && npm run build"
   },
   "deploy": {
-    "startCommand": "node dist/main",
+    "startCommand": "npm run migration:run:prod && node dist/main",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 30,
     "restartPolicyType": "ON_FAILURE",
