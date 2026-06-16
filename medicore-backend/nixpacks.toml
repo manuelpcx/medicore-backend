@@ -1,7 +1,3 @@
-# Fuerza npm y Node 20 en Railway
-[phases.setup]
-nixPkgs = ["nodejs_20"]
-
 [phases.install]
 cmds = ["npm install --legacy-peer-deps"]
 
@@ -9,4 +5,4 @@ cmds = ["npm install --legacy-peer-deps"]
 cmds = ["npm run build"]
 
 [start]
-cmd = "npm run start:prod"
+cmd = "node dist/main"
