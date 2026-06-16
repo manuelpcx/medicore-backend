@@ -61,7 +61,7 @@ export default function DoctorEntryPage() {
           <div style={logoWrapStyle}>
             <div style={logoDotStyle}>M</div>
             <span style={{ fontFamily: 'DM Serif Display, serif', fontSize: 22, color: 'var(--accent)' }}>
-              Medi-History
+              Medicore
             </span>
           </div>
           <h1 style={{ fontFamily: 'DM Serif Display, serif', fontSize: 22, fontWeight: 400, marginTop: 20, marginBottom: 6 }}>
@@ -140,7 +140,7 @@ export default function DoctorEntryPage() {
 
       {/* Bottom branding */}
       <p style={{ marginTop: 24, fontSize: 12, color: 'var(--text3)' }}>
-        Medi-History · Historial médico personal
+        Medicore · Historial médico personal
       </p>
     </div>
   );

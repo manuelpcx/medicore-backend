@@ -40,7 +40,7 @@ export default function LoginPage() {
       <div style={cardStyle}>
         <div style={{ textAlign: 'center', marginBottom: 32 }}>
           <div style={logoStyle}>M</div>
-          <h1 className="serif" style={{ fontSize: 28, fontWeight: 400, marginBottom: 6 }}>Medi-History</h1>
+          <h1 className="serif" style={{ fontSize: 28, fontWeight: 400, marginBottom: 6 }}>Medicore</h1>
           <p style={{ color: 'var(--text2)', fontSize: 14 }}>Tu historial médico, siempre contigo</p>
         </div>
 
