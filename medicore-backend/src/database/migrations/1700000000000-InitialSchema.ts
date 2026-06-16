@@ -22,6 +22,8 @@ export class InitialSchema1700000000000 implements MigrationInterface {
         "fecha_nacimiento"    date,
         "tipo_sangre"         character varying,
         "activo"              boolean           NOT NULL DEFAULT true,
+        "consent_accepted"    boolean           NOT NULL DEFAULT false,
+        "consent_date"        TIMESTAMPTZ,
         "notif_daily_meds"    boolean           NOT NULL DEFAULT true,
         "notif_single_med"    boolean           NOT NULL DEFAULT true,
         "notif_appointments"  boolean           NOT NULL DEFAULT true,
