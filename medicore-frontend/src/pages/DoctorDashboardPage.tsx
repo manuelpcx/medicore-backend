@@ -78,7 +78,7 @@ export default function DoctorDashboardPage() {
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             <div style={headerLogoStyle}>M</div>
             <span style={{ color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: 500 }}>
-              Medicore · Vista médica
+              Medi-History · Vista médica
             </span>
           </div>
 
@@ -311,7 +311,7 @@ export default function DoctorDashboardPage() {
 
         {/* ── FOOTER ──────────────────────────────────── */}
         <footer style={footerStyle}>
-          <span>Vista de solo lectura · Acceso autorizado por el paciente · Medicore</span>
+          <span>Vista de solo lectura · Acceso autorizado por el paciente · Medi-History</span>
           {snap.generado_en && (
             <span>Acceso generado: {fDate(snap.generado_en)}</span>
           )}

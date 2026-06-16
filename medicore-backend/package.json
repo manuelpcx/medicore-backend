@@ -1,7 +1,7 @@
 {
-  "name": "medicore-backend",
+  "name": "medi-history-backend",
   "version": "1.0.0",
-  "description": "Backend API para Medicore — historial médico personal centralizado",
+  "description": "Backend API para Medi-History — historial médico personal centralizado",
   "main": "dist/main.js",
   "packageManager": "npm@10.9.0",
   "engines": { "node": ">=20.0.0" },

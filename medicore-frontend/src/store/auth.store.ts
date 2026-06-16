@@ -25,7 +25,7 @@ export const useAuthStore = create<AuthState>()(
       isAuthenticated: () => !!get().accessToken,
     }),
     {
-      name: 'medicore-auth',
+      name: 'medi-history-auth',
       partialize: (s) => ({
         user: s.user,
         accessToken: s.accessToken,

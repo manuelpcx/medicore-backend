@@ -54,7 +54,7 @@ export default function RegisterPage() {
           <h1 className="serif" style={{ fontSize: 26, fontWeight: 400, marginBottom: 6 }}>
             Crear cuenta
           </h1>
-          <p style={{ color: 'var(--text2)', fontSize: 14 }}>Regístrate en Medicore</p>
+          <p style={{ color: 'var(--text2)', fontSize: 14 }}>Regístrate en Medi-History</p>
         </div>
 
         <form onSubmit={handleSubmit(onSubmit)} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
