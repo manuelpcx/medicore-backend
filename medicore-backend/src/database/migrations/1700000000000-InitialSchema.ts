@@ -9,6 +9,9 @@ export class InitialSchema1700000000000 implements MigrationInterface {
   name = 'InitialSchema1700000000000';
 
   public async up(queryRunner: QueryRunner): Promise<void> {
+    // ── uuid extension (necesaria para uuid_generate_v4) ─────────────────
+    await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
+
     // ── users ────────────────────────────────────────────────────────────
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "users" (
@@ -68,8 +71,11 @@ export class InitialSchema1700000000000 implements MigrationInterface {
 
     // ── medical_history ──────────────────────────────────────────────────
     await queryRunner.query(`
-      CREATE TYPE IF NOT EXISTS "medical_history_tipo_enum"
-        AS ENUM ('control', 'urgencia', 'especialidad', 'preventivo')
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'medical_history_tipo_enum') THEN
+          CREATE TYPE "medical_history_tipo_enum" AS ENUM ('control', 'urgencia', 'especialidad', 'preventivo');
+        END IF;
+      END $$
     `);
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "medical_history" (
@@ -95,8 +101,11 @@ export class InitialSchema1700000000000 implements MigrationInterface {
 
     // ── medications ──────────────────────────────────────────────────────
     await queryRunner.query(`
-      CREATE TYPE IF NOT EXISTS "medications_estado_enum"
-        AS ENUM ('activo', 'finalizado')
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'medications_estado_enum') THEN
+          CREATE TYPE "medications_estado_enum" AS ENUM ('activo', 'finalizado');
+        END IF;
+      END $$
     `);
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "medications" (
@@ -142,12 +151,18 @@ export class InitialSchema1700000000000 implements MigrationInterface {
 
     // ── allergies ────────────────────────────────────────────────────────
     await queryRunner.query(`
-      CREATE TYPE IF NOT EXISTS "allergies_severidad_enum"
-        AS ENUM ('leve', 'moderada', 'severa')
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'allergies_severidad_enum') THEN
+          CREATE TYPE "allergies_severidad_enum" AS ENUM ('leve', 'moderada', 'severa');
+        END IF;
+      END $$
     `);
     await queryRunner.query(`
-      CREATE TYPE IF NOT EXISTS "allergies_tipo_enum"
-        AS ENUM ('medicamento', 'alimentaria', 'ambiental', 'otra')
+      DO $$ BEGIN
+        IF NOT EXISTS (SELECT 1 FROM pg_type WHERE typname = 'allergies_tipo_enum') THEN
+          CREATE TYPE "allergies_tipo_enum" AS ENUM ('medicamento', 'alimentaria', 'ambiental', 'otra');
+        END IF;
+      END $$
     `);
     await queryRunner.query(`
       CREATE TABLE IF NOT EXISTS "allergies" (
@@ -196,8 +211,6 @@ export class InitialSchema1700000000000 implements MigrationInterface {
       )
     `);
 
-    // ── uuid extension (necesaria para uuid_generate_v4) ─────────────────
-    await queryRunner.query(`CREATE EXTENSION IF NOT EXISTS "uuid-ossp"`);
   }
 
   public async down(queryRunner: QueryRunner): Promise<void> {
