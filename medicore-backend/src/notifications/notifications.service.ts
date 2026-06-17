@@ -25,12 +25,14 @@ export class NotificationsService {
   private transporter: Transporter;
 
   constructor(private readonly config: ConfigService) {
+    const port = this.config.get<number>('MAIL_PORT', 465);
+    const secure = this.config.get<string>('MAIL_SECURE', port === 465 ? 'true' : 'false') === 'true';
     this.transporter = nodemailer.createTransport({
-      host: this.config.get<string>('MAIL_HOST', 'smtp.gmail.com'),
-      port: this.config.get<number>('MAIL_PORT', 587),
-      secure: false, // STARTTLS en puerto 587
+      host: this.config.get<string>('MAIL_HOST', 'smtp.resend.com'),
+      port,
+      secure,
       auth: {
-        user: this.config.get<string>('MAIL_USER'),
+        user: this.config.get<string>('MAIL_USER', 'resend'),
         pass: this.config.get<string>('MAIL_PASS'),
       },
     });
@@ -65,7 +67,7 @@ export class NotificationsService {
   // ── Interno ─────────────────────────────────────────────────────────────────
 
   private async send(options: { to: string; subject: string; html: string }): Promise<void> {
-    const from = this.config.get<string>('MAIL_FROM', 'Medicore <no-reply@medicore.app>');
+    const from = this.config.get<string>('MAIL_FROM', 'Medi-History <no-reply@medi-history.app>');
     try {
       await this.transporter.sendMail({ from, ...options });
       this.logger.log(`Email enviado a ${options.to} — "${options.subject}"`);
