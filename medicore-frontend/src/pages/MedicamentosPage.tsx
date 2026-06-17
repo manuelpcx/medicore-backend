@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useMedications, useCreateMedication, useUpdateMedication, useDeleteMedication } from '../hooks/useMedications';
-import { useForm, useWatch } from 'react-hook-form';
+import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { Card } from '../components/ui/Card';
@@ -9,12 +9,10 @@ import { Badge } from '../components/ui/Badge';
 import { Modal } from '../components/ui/Modal';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
-import { Toggle } from '../components/ui/Toggle';
 import { ListSkeleton } from '../components/ui/Skeleton';
 import { fDate } from '../utils/format';
 import type { Medication } from '../types';
 
-// ── Schema con campos de notificación ──────────────────────────────────────
 const schema = z.object({
   nombre: z.string().min(1, 'Requerido'),
   dosis: z.string().min(1, 'Requerido'),
@@ -24,49 +22,10 @@ const schema = z.object({
   medico_recetante: z.string().optional(),
   fecha_inicio: z.string().optional(),
   fecha_fin: z.string().optional(),
-  notificacion_activa: z.boolean().default(true),
+  notificacion_activa: z.boolean().default(false),
   horario_notificacion: z.string().nullable().optional(),
-}).superRefine((data, ctx) => {
-  if (
-    data.notificacion_activa &&
-    data.estado === 'activo' &&
-    (!data.horario_notificacion || data.horario_notificacion.trim() === '')
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: 'Ingresa la hora del recordatorio (HH:MM)',
-      path: ['horario_notificacion'],
-    });
-  }
 });
 type Form = z.infer<typeof schema>;
-
-// ── Chip de notificación ───────────────────────────────────────────────────
-function NotifChip({ med }: { med: Medication }) {
-  if (!med.notificacion_activa) {
-    return (
-      <span style={{
-        display: 'inline-flex', alignItems: 'center', gap: 3,
-        background: 'var(--surface2)', color: 'var(--text3)',
-        fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 20,
-      }}>
-        🔕 Sin recordatorio
-      </span>
-    );
-  }
-  if (med.horario_notificacion) {
-    return (
-      <span style={{
-        display: 'inline-flex', alignItems: 'center', gap: 3,
-        background: 'var(--accent2)', color: 'var(--accent3)',
-        fontSize: 11, fontWeight: 500, padding: '2px 8px', borderRadius: 20,
-      }}>
-        🔔 {med.horario_notificacion}
-      </span>
-    );
-  }
-  return null;
-}
 
 // ── Tarjeta de medicamento ─────────────────────────────────────────────────
 function MedCard({ med, onEdit, onDelete, onToggle }: {
@@ -86,7 +45,6 @@ function MedCard({ med, onEdit, onDelete, onToggle }: {
             <Badge variant={isActive ? 'success' : 'default'}>
               {isActive ? 'Activo' : 'Finalizado'}
             </Badge>
-            {isActive && <NotifChip med={med} />}
           </div>
           <div style={{ fontSize: 13, color: 'var(--text2)', display: 'flex', gap: 12, flexWrap: 'wrap' }}>
             <span>💉 {med.dosis}</span>
@@ -123,11 +81,6 @@ function MedForm({ id, onSubmit, register, control, errors }: {
   control: ReturnType<typeof useForm<Form>>['control'];
   errors: ReturnType<typeof useForm<Form>>['formState']['errors'];
 }) {
-  // Observar notificacion_activa y estado para mostrar/ocultar el campo de hora
-  const notifActiva = useWatch({ control, name: 'notificacion_activa', defaultValue: true });
-  const estado = useWatch({ control, name: 'estado', defaultValue: 'activo' });
-  const showHora = notifActiva && estado === 'activo';
-
   return (
     <form id={id} onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       {/* Campos base */}
@@ -150,54 +103,7 @@ function MedForm({ id, onSubmit, register, control, errors }: {
         {...register('estado')}
       />
 
-      {/* Separador de notificaciones */}
-      <div style={{ borderTop: '1px solid var(--border)', paddingTop: 14, marginTop: 2 }}>
-        <p style={{ fontSize: 12, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase',
-          letterSpacing: 0.5, marginBottom: 12 }}>
-          Recordatorio por email
-        </p>
-
-        {/* Toggle activar recordatorio */}
-        <NotifToggleField control={control} register={register} name="notificacion_activa" />
-
-        {/* Input hora — visible sólo si está activo y estado=activo */}
-        {showHora && (
-          <div style={{ marginTop: 12 }}>
-            <Input
-              label="¿A qué hora tomar este medicamento?"
-              type="time"
-              helper="Te enviaremos un email a esta hora como recordatorio"
-              error={errors.horario_notificacion?.message}
-              {...register('horario_notificacion')}
-            />
-          </div>
-        )}
-      </div>
     </form>
-  );
-}
-
-/**
- * Toggle gestionado con react-hook-form para notificacion_activa.
- * Necesita control para getValue y register para onChange.
- */
-function NotifToggleField({
-  control, register, name,
-}: {
-  control: ReturnType<typeof useForm<Form>>['control'];
-  register: ReturnType<typeof useForm<Form>>['register'];
-  name: 'notificacion_activa';
-}) {
-  const value = useWatch({ control, name, defaultValue: true });
-  const { onChange } = register(name);
-
-  return (
-    <Toggle
-      checked={!!value}
-      onChange={(v) => onChange({ target: { value: v, name } })}
-      label="Activar recordatorio para este medicamento"
-      description="Recibirás un aviso por email a la hora configurada"
-    />
   );
 }
 
@@ -215,12 +121,12 @@ export default function MedicamentosPage() {
 
   const { register, control, handleSubmit, reset, formState: { errors } } = useForm<Form>({
     resolver: zodResolver(schema),
-    defaultValues: { estado: 'activo', notificacion_activa: true },
+    defaultValues: { estado: 'activo', notificacion_activa: false },
   });
 
   const openCreate = () => {
     setEditing(null);
-    reset({ estado: 'activo', notificacion_activa: true, horario_notificacion: null });
+    reset({ estado: 'activo', notificacion_activa: false, horario_notificacion: null });
     setModalOpen(true);
   };
 

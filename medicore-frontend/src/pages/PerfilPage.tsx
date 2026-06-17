@@ -4,18 +4,16 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { useNavigate } from 'react-router-dom';
 import { usePatient, useUpdatePatient } from '../hooks/usePatient';
-import { useNotificationPreferences, useUpdateNotificationPreferences } from '../hooks/useNotifications';
 import { useAuthStore } from '../store/auth.store';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 import { Modal } from '../components/ui/Modal';
-import { Toggle } from '../components/ui/Toggle';
 import { Skeleton } from '../components/ui/Skeleton';
 import { fDate, extractError } from '../utils/format';
 import { authApi } from '../api/auth.api';
 import { toast } from '../store/toast.store';
-import type { UpdatePatientDto, NotificationPreferences } from '../types';
+import type { UpdatePatientDto } from '../types';
 
 // ── Schema del perfil ───────────────────────────────────────────────────────
 const schema = z.object({
@@ -33,116 +31,11 @@ type Form = z.infer<typeof schema>;
 
 // ── Tabs disponibles ────────────────────────────────────────────────────────
 const TABS = [
-  { key: 'personal',       label: 'Datos personales' },
-  { key: 'vitales',        label: 'Signos vitales' },
-  { key: 'emergencia',     label: 'Emergencia' },
-  { key: 'notificaciones', label: '🔔 Notificaciones' },
+  { key: 'personal',   label: 'Datos personales' },
+  { key: 'vitales',    label: 'Signos vitales' },
+  { key: 'emergencia', label: 'Emergencia' },
 ] as const;
 type TabKey = typeof TABS[number]['key'];
-
-// ── Sección de notificaciones ───────────────────────────────────────────────
-function NotificationsSection({ email }: { email?: string }) {
-  const { data: prefs, isLoading } = useNotificationPreferences();
-  const updatePrefs = useUpdateNotificationPreferences();
-
-  const handleToggle = (key: keyof NotificationPreferences, value: boolean) => {
-    updatePrefs.mutate({ [key]: value });
-  };
-
-  if (isLoading) {
-    return (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {[1, 2, 3].map((i) => <Skeleton key={i} height={56} />)}
-      </div>
-    );
-  }
-
-  const notifItems: Array<{
-    key: keyof NotificationPreferences;
-    label: string;
-    description: string;
-  }> = [
-    {
-      key: 'daily_meds_enabled',
-      label: 'Resumen diario',
-      description: 'Un email cada mañana a las 8:00 con todos tus medicamentos del día',
-    },
-    {
-      key: 'single_med_enabled',
-      label: 'Recordatorio por medicamento',
-      description: 'Un aviso puntual a la hora que configures en cada medicamento',
-    },
-    {
-      key: 'appointments_enabled',
-      label: 'Próximos controles',
-      description: 'Un aviso la tarde anterior a cada control médico agendado',
-    },
-  ];
-
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-      {/* Subtitle */}
-      <div style={{
-        background: 'var(--surface2)', borderRadius: 8,
-        padding: '10px 14px', marginBottom: 12,
-        display: 'flex', alignItems: 'center', gap: 8,
-        fontSize: 13, color: 'var(--text2)',
-      }}>
-        <span>📧</span>
-        <span>
-          Te enviamos recordatorios a <strong style={{ color: 'var(--text)' }}>{email ?? '…'}</strong>
-        </span>
-      </div>
-
-      {/* Toggle items */}
-      {notifItems.map((item) => {
-        const isOn = prefs?.[item.key] ?? true;
-        const isSaving = updatePrefs.isPending && updatePrefs.variables
-          ? item.key in (updatePrefs.variables as object)
-          : false;
-
-        return (
-          <div
-            key={item.key}
-            style={{
-              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-              padding: '14px 16px',
-              background: isOn ? 'var(--surface)' : 'var(--surface2)',
-              border: '1px solid var(--border)', borderRadius: 10,
-              transition: 'background 0.15s',
-              gap: 12,
-            }}
-          >
-            {/* Text */}
-            <div style={{ flex: 1 }}>
-              <div style={{ fontSize: 14, fontWeight: 500, color: 'var(--text)', lineHeight: 1.3 }}>
-                {item.label}
-              </div>
-              <div style={{ fontSize: 12, color: 'var(--text2)', marginTop: 2, lineHeight: 1.5 }}>
-                {item.description}
-              </div>
-            </div>
-
-            {/* Toggle */}
-            <Toggle
-              checked={isOn}
-              disabled={isSaving || updatePrefs.isPending}
-              onChange={(value) => handleToggle(item.key, value)}
-              size="md"
-            />
-          </div>
-        );
-      })}
-
-      {/* Saving indicator */}
-      {updatePrefs.isPending && (
-        <div style={{ fontSize: 12, color: 'var(--text3)', textAlign: 'center', marginTop: 4 }}>
-          Guardando…
-        </div>
-      )}
-    </div>
-  );
-}
 
 // ── Página principal ────────────────────────────────────────────────────────
 export default function PerfilPage() {
@@ -249,22 +142,8 @@ export default function PerfilPage() {
         ))}
       </div>
 
-      {/* Tab: notificaciones — fuera del form */}
-      {tab === 'notificaciones' ? (
-        <Card>
-          <div style={{ marginBottom: 16 }}>
-            <h3 className="serif" style={{ fontSize: 17, fontWeight: 400, marginBottom: 4 }}>
-              Recordatorios por email
-            </h3>
-            <p style={{ fontSize: 13, color: 'var(--text2)' }}>
-              Activa o desactiva los recordatorios automáticos. Los cambios se guardan al instante.
-            </p>
-          </div>
-          <NotificationsSection email={user?.email} />
-        </Card>
-      ) : (
-        <Card>
-          <form onSubmit={handleSubmit(onSubmit)} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+      <Card>
+        <form onSubmit={handleSubmit(onSubmit)} style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
             {tab === 'personal' && (
               <>
                 <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14 }}>
@@ -302,8 +181,7 @@ export default function PerfilPage() {
               <Button type="submit" loading={update.isPending}>Guardar cambios</Button>
             </div>
           </form>
-        </Card>
-      )}
+      </Card>
 
       {/* ── Zona de peligro — solo en tab personal ───────────────────── */}
       {tab === 'personal' && (

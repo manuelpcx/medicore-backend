@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useHistory, useCreateHistory, useUpdateHistory, useDeleteHistory } from '../hooks/useHistory';
-import { useForm, useWatch } from 'react-hook-form';
+import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { parseISO, isValid, differenceInDays, isPast } from 'date-fns';
@@ -12,7 +12,6 @@ import { Modal } from '../components/ui/Modal';
 import { Input } from '../components/ui/Input';
 import { Select } from '../components/ui/Select';
 import { Textarea } from '../components/ui/Textarea';
-import { Toggle } from '../components/ui/Toggle';
 import { tipoBadge } from '../components/ui/Badge';
 import { ListSkeleton } from '../components/ui/Skeleton';
 import { fDate } from '../utils/format';
@@ -107,10 +106,6 @@ function HistoryForm({
   control: ReturnType<typeof useForm<Form>>['control'];
   errors: ReturnType<typeof useForm<Form>>['formState']['errors'];
 }) {
-  const proximaCita = useWatch({ control, name: 'proxima_cita' });
-  const recordatorio = useWatch({ control, name: 'recordatorio_activo', defaultValue: true });
-  const hasFecha = !!(proximaCita && String(proximaCita).trim().length > 0);
-  const { onChange: onToggleChange } = register('recordatorio_activo');
 
   return (
     <form id={id} onSubmit={onSubmit} style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
@@ -138,7 +133,7 @@ function HistoryForm({
           <Input
             label="¿Cuándo es tu próxima cita?"
             type="date"
-            helper="Opcional — recibirás un recordatorio el día anterior"
+            helper="Opcional"
             {...register('proxima_cita')}
           />
           <Select
@@ -148,15 +143,6 @@ function HistoryForm({
           />
         </div>
 
-        {/* Toggle recordatorio — solo visible si hay fecha */}
-        {hasFecha && (
-          <Toggle
-            checked={!!recordatorio}
-            onChange={(v) => onToggleChange({ target: { value: v, name: 'recordatorio_activo' } })}
-            label="Recordarme el día anterior"
-            description="Te enviaremos un email la tarde del día previo a la cita"
-          />
-        )}
       </div>
     </form>
   );
