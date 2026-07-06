@@ -13,6 +13,7 @@ import { VaccinesModule } from './vaccines/vaccines.module';
 import { AccessCodesModule } from './access-codes/access-codes.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { HealthModule } from './health/health.module';
+import { AdminModule } from './admin/admin.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 
 @Module({
@@ -51,6 +52,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
     AccessCodesModule,
     NotificationsModule,
     HealthModule,
+    AdminModule,
   ],
   providers: [
     {

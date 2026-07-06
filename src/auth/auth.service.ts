@@ -62,6 +62,10 @@ export class AuthService {
     const valid = await bcrypt.compare(dto.password, user.password);
     if (!valid) throw new UnauthorizedException('Credenciales incorrectas');
 
+    // Registrar último login (usado por el panel de administración)
+    user.last_login_at = new Date();
+    await this.userRepo.update(user.id, { last_login_at: user.last_login_at });
+
     const tokens = await this.generateTokens(user);
     return { user: this.sanitize(user), ...tokens, message: 'Sesión iniciada' };
   }

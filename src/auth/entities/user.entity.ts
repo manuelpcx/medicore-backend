@@ -33,6 +33,14 @@ export class User {
   @Column({ default: true })
   activo: boolean;
 
+  /** Rol de acceso. 'user' para pacientes, 'admin' para el panel de administración. */
+  @Column({ type: 'varchar', length: 20, default: 'user' })
+  role: 'user' | 'admin';
+
+  /** Fecha del último login exitoso. Se actualiza en cada POST /auth/login. */
+  @Column({ type: 'timestamptz', nullable: true })
+  last_login_at: Date | null;
+
   /**
    * Consentimiento explícito al tratamiento de datos personales de salud.
    * Requerido por Ley 19.628 / Ley 21.719 (Chile) antes de procesar datos sensibles.
