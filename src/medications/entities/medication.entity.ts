@@ -46,6 +46,10 @@ export class Medication {
   @Column({ type: 'date', nullable: true })
   fecha_fin: Date;
 
+  /** Medicamento de uso indefinido. Si es true, `fecha_fin` se ignora (queda null). */
+  @Column({ default: false })
+  permanente: boolean;
+
   /** Hora exacta de notificación en formato "HH:mm" (ej: "08:00"). Null = sin notificación puntual. */
   @Column({ nullable: true, type: 'varchar', length: 5, comment: 'HH:mm' })
   horario_notificacion: string | null;

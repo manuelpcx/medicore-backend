@@ -27,7 +27,10 @@ export class MedicationsService {
 
   async create(userId: string, dto: CreateMedicationDto) {
     const id = await this.pid(userId);
-    return this.repo.save(this.repo.create({ ...dto, patient_id: id }));
+    const med = this.repo.create({ ...dto, patient_id: id });
+    // Un medicamento permanente no tiene fecha de fin.
+    if (med.permanente) med.fecha_fin = null as any;
+    return this.repo.save(med);
   }
 
   async findOne(userId: string, medId: string) {
@@ -41,6 +44,8 @@ export class MedicationsService {
   async update(userId: string, medId: string, dto: UpdateMedicationDto) {
     const m = await this.findOne(userId, medId);
     Object.assign(m, dto);
+    // Un medicamento permanente no tiene fecha de fin.
+    if (m.permanente) m.fecha_fin = null as any;
     return this.repo.save(m);
   }
 

@@ -41,6 +41,14 @@ export class CreateMedicationDto {
   fecha_fin?: string;
 
   @ApiPropertyOptional({
+    example: false,
+    description: 'Uso indefinido. Si es true, se ignora fecha_fin (queda null).',
+  })
+  @IsOptional()
+  @IsBoolean()
+  permanente?: boolean;
+
+  @ApiPropertyOptional({
     example: '08:00',
     description: 'Hora de notificación en formato HH:mm (24h). Null desactiva el aviso puntual.',
   })
