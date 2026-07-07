@@ -7,7 +7,7 @@ import { Repository } from 'typeorm';
 import { Exam } from './entities/exam.entity';
 import { Patient } from '../patients/entities/patient.entity';
 import { CreateExamDto } from './dto/create-exam.dto';
-import { join } from 'path';
+import { join, isAbsolute } from 'path';
 import { existsSync, unlinkSync } from 'fs';
 
 @Injectable()
@@ -21,6 +21,16 @@ export class ExamsService {
     const p = await this.patientRepo.findOne({ where: { user_id: userId } });
     if (!p) throw new NotFoundException('Paciente no encontrado');
     return p.id;
+  }
+
+  /**
+   * Resuelve la ruta física del archivo. `archivo_path` (de multer) puede ser
+   * absoluto (UPLOAD_PATH absoluto, p.ej. Railway `/data/uploads`) o relativo
+   * (UPLOAD_PATH relativo, p.ej. `./uploads` en local). No usar join() a ciegas:
+   * join(cwd, rutaAbsoluta) produce una ruta incorrecta.
+   */
+  private resolveFilePath(archivoPath: string): string {
+    return isAbsolute(archivoPath) ? archivoPath : join(process.cwd(), archivoPath);
   }
 
   findAll(userId: string) {
@@ -52,7 +62,7 @@ export class ExamsService {
   async getFile(userId: string, examId: string) {
     const exam = await this.findOne(userId, examId);
     if (!exam.archivo_path) throw new NotFoundException('Este examen no tiene archivo adjunto');
-    const fullPath = join(process.cwd(), exam.archivo_path);
+    const fullPath = this.resolveFilePath(exam.archivo_path);
     if (!existsSync(fullPath)) throw new NotFoundException('Archivo no encontrado en el servidor');
     return { path: fullPath, mimetype: exam.archivo_mimetype, nombre: exam.archivo_nombre };
   }
@@ -60,7 +70,7 @@ export class ExamsService {
   async remove(userId: string, examId: string) {
     const exam = await this.findOne(userId, examId);
     if (exam.archivo_path) {
-      const fullPath = join(process.cwd(), exam.archivo_path);
+      const fullPath = this.resolveFilePath(exam.archivo_path);
       if (existsSync(fullPath)) unlinkSync(fullPath);
     }
     await this.repo.remove(exam);
