@@ -3,6 +3,7 @@ import {
   ManyToOne, JoinColumn, CreateDateColumn,
 } from 'typeorm';
 import { Patient } from '../../patients/entities/patient.entity';
+import { encryptedColumn } from '../../common/crypto/encryption';
 
 export enum ResultadoBadge {
   NORMAL = 'normal',
@@ -22,16 +23,16 @@ export class Exam {
   @JoinColumn({ name: 'patient_id' })
   patient: Patient;
 
-  @Column()
+  @Column({ type: 'text', transformer: encryptedColumn() })
   nombre: string;
 
   @Column({ type: 'date' })
   fecha: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
   laboratorio: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
   tipo: string;
 
   @Column({ type: 'enum', enum: ResultadoBadge, default: ResultadoBadge.PENDIENTE })
@@ -40,7 +41,7 @@ export class Exam {
   @Column({ nullable: true })
   archivo_path: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
   archivo_nombre: string;
 
   @Column({ nullable: true })

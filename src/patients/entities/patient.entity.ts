@@ -14,6 +14,7 @@ import { Exam } from '../../exams/entities/exam.entity';
 import { Allergy } from '../../allergies/entities/allergy.entity';
 import { Vaccine } from '../../vaccines/entities/vaccine.entity';
 import { AccessCode } from '../../access-codes/entities/access-code.entity';
+import { encryptedColumn } from '../../common/crypto/encryption';
 
 @Entity('patients')
 export class Patient {
@@ -27,32 +28,32 @@ export class Patient {
   @JoinColumn({ name: 'user_id' })
   user: User;
 
-  // Signos vitales
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
-  peso: number;
+  // Signos vitales — cifrados en reposo (se devuelven como string cifrado).
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
+  peso: string;
 
-  @Column({ type: 'decimal', precision: 5, scale: 2, nullable: true })
-  altura: number;
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
+  altura: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
   presion_arterial: string;
 
-  @Column({ type: 'int', nullable: true })
-  frecuencia_cardiaca: number;
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
+  frecuencia_cardiaca: string;
 
-  @Column({ type: 'decimal', precision: 4, scale: 1, nullable: true })
-  temperatura: number;
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
+  temperatura: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
   telefono: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
   direccion: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
   contacto_emergencia: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
   telefono_emergencia: string;
 
   @UpdateDateColumn()

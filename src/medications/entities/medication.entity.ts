@@ -3,6 +3,7 @@ import {
   ManyToOne, JoinColumn, CreateDateColumn, UpdateDateColumn,
 } from 'typeorm';
 import { Patient } from '../../patients/entities/patient.entity';
+import { encryptedColumn } from '../../common/crypto/encryption';
 
 export enum EstadoMedicamento {
   ACTIVO = 'activo',
@@ -21,22 +22,22 @@ export class Medication {
   @JoinColumn({ name: 'patient_id' })
   patient: Patient;
 
-  @Column()
+  @Column({ type: 'text', transformer: encryptedColumn() })
   nombre: string;
 
-  @Column()
+  @Column({ type: 'text', transformer: encryptedColumn() })
   dosis: string;
 
-  @Column()
+  @Column({ type: 'text', transformer: encryptedColumn() })
   frecuencia: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
   horario: string;
 
   @Column({ type: 'enum', enum: EstadoMedicamento, default: EstadoMedicamento.ACTIVO })
   estado: EstadoMedicamento;
 
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
   medico_recetante: string;
 
   @Column({ type: 'date', nullable: true })

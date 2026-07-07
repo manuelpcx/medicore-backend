@@ -19,7 +19,7 @@ export class AdminController {
   }
 
   @Get('users')
-  @ApiOperation({ summary: 'Listado paginado de usuarios (búsqueda por nombre o email)' })
+  @ApiOperation({ summary: 'Listado paginado de usuarios (búsqueda por email)' })
   listUsers(@Query() query: ListUsersDto) {
     return this.adminService.listUsers(query);
   }

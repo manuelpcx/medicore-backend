@@ -5,11 +5,15 @@ import { SwaggerModule, DocumentBuilder } from '@nestjs/swagger';
 import { AppModule } from './app.module';
 import { ResponseInterceptor } from './common/interceptors/response.interceptor';
 import { HttpExceptionFilter } from './common/filters/http-exception.filter';
+import { assertEncryptionKey } from './common/crypto/encryption';
 import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { NestExpressApplication } from '@nestjs/platform-express';
 
 async function bootstrap() {
+  // Fail-fast: no arrancar sin una ENCRYPTION_KEY válida (cifrado en reposo).
+  assertEncryptionKey();
+
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
 
   // ── Proxy trust (Railway / Render sit behind a reverse proxy) ───────────

@@ -3,6 +3,7 @@ import {
   ManyToOne, JoinColumn, CreateDateColumn,
 } from 'typeorm';
 import { Patient } from '../../patients/entities/patient.entity';
+import { encryptedColumn } from '../../common/crypto/encryption';
 
 @Entity('vaccines')
 export class Vaccine {
@@ -16,16 +17,16 @@ export class Vaccine {
   @JoinColumn({ name: 'patient_id' })
   patient: Patient;
 
-  @Column()
+  @Column({ type: 'text', transformer: encryptedColumn() })
   nombre: string;
 
   @Column({ type: 'date' })
   fecha: Date;
 
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
   lote: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
   institucion: string;
 
   @Column({ type: 'date', nullable: true })

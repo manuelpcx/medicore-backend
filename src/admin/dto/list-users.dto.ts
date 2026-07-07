@@ -18,7 +18,7 @@ export class ListUsersDto {
   @Max(100)
   limit?: number = 20;
 
-  @ApiPropertyOptional({ description: 'Búsqueda por nombre o email' })
+  @ApiPropertyOptional({ description: 'Búsqueda por email (el nombre está cifrado)' })
   @IsOptional()
   @IsString()
   search?: string;

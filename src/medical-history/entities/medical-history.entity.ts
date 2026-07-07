@@ -8,6 +8,7 @@ import {
   UpdateDateColumn,
 } from 'typeorm';
 import { Patient } from '../../patients/entities/patient.entity';
+import { encryptedColumn } from '../../common/crypto/encryption';
 
 export enum TipoConsulta {
   CONTROL = 'control',
@@ -31,19 +32,19 @@ export class MedicalHistory {
   @Column({ type: 'date' })
   fecha: Date;
 
-  @Column()
+  @Column({ type: 'text', transformer: encryptedColumn() })
   especialidad: string;
 
-  @Column()
+  @Column({ type: 'text', transformer: encryptedColumn() })
   doctor: string;
 
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
   institucion: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
   diagnostico: string;
 
-  @Column({ type: 'text', nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
   notas: string;
 
   @Column({ type: 'enum', enum: TipoConsulta, default: TipoConsulta.CONTROL })

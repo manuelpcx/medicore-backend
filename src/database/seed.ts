@@ -54,11 +54,11 @@ async function seed() {
   // Crear perfil paciente
   const patient = patientRepo.create({
     user_id: user.id,
-    peso: 78.5,
-    altura: 1.75,
+    peso: '78.5',
+    altura: '1.75',
     presion_arterial: '120/80',
-    frecuencia_cardiaca: 72,
-    temperatura: 36.6,
+    frecuencia_cardiaca: '72',
+    temperatura: '36.6',
     telefono: '+52 55 1234 5678',
     contacto_emergencia: 'María Méndez (madre)',
     telefono_emergencia: '+52 55 8765 4321',

@@ -8,6 +8,7 @@ import { Medication } from '../medications/entities/medication.entity';
 import { Exam } from '../exams/entities/exam.entity';
 import { AccessCode } from '../access-codes/entities/access-code.entity';
 import { ListUsersDto } from './dto/list-users.dto';
+import { decrypt } from '../common/crypto/encryption';
 
 @Injectable()
 export class AdminService {
@@ -114,10 +115,10 @@ export class AdminService {
       .createQueryBuilder('u')
       .leftJoin('patients', 'p', 'p.user_id = u.id');
 
+    // La búsqueda es solo por email: `nombre` está cifrado (IV aleatorio),
+    // por lo que no es filtrable con ILIKE.
     if (dto.search) {
-      base.where('(u.nombre ILIKE :s OR u.email ILIKE :s)', {
-        s: `%${dto.search}%`,
-      });
+      base.where('u.email ILIKE :s', { s: `%${dto.search}%` });
     }
 
     const total = await base.getCount();
@@ -144,7 +145,8 @@ export class AdminService {
 
     const data = rows.map((r) => ({
       id: r.id,
-      nombre: r.nombre,
+      // `nombre` viene crudo de getRawMany (el transformer no aplica en raw) -> descifrar.
+      nombre: r.nombre ? decrypt(r.nombre) : r.nombre,
       email: r.email,
       fecha_registro: r.fecha_registro,
       fecha_ultimo_login: r.fecha_ultimo_login,

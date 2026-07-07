@@ -3,6 +3,7 @@ import {
   ManyToOne, JoinColumn, CreateDateColumn,
 } from 'typeorm';
 import { Patient } from '../../patients/entities/patient.entity';
+import { encryptedColumn } from '../../common/crypto/encryption';
 
 export enum SeveridadAlergia {
   LEVE = 'leve',
@@ -29,7 +30,7 @@ export class Allergy {
   @JoinColumn({ name: 'patient_id' })
   patient: Patient;
 
-  @Column()
+  @Column({ type: 'text', transformer: encryptedColumn() })
   nombre: string;
 
   @Column({ type: 'enum', enum: SeveridadAlergia })

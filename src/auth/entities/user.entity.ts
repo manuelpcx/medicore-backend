@@ -8,6 +8,7 @@ import {
 } from 'typeorm';
 import { Exclude } from 'class-transformer';
 import { Patient } from '../../patients/entities/patient.entity';
+import { encryptedColumn } from '../../common/crypto/encryption';
 
 @Entity('users')
 export class User {
@@ -17,17 +18,18 @@ export class User {
   @Column({ unique: true })
   email: string;
 
-  @Column()
+  @Column({ type: 'text', transformer: encryptedColumn() })
   nombre: string;
 
   @Exclude()
   @Column()
   password: string;
 
-  @Column({ type: 'date', nullable: true })
-  fecha_nacimiento: Date;
+  // Cifrado en reposo — se almacena y devuelve como string (ISO) cifrado.
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
+  fecha_nacimiento: string | null;
 
-  @Column({ nullable: true })
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
   tipo_sangre: string;
 
   @Column({ default: true })
