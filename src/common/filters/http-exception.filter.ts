@@ -4,6 +4,7 @@ import {
   ArgumentsHost,
   HttpException,
   HttpStatus,
+  Logger,
 } from '@nestjs/common';
 import { Response } from 'express';
 
@@ -20,6 +21,8 @@ const HTTP_MESSAGES: Record<number, string> = {
 
 @Catch()
 export class HttpExceptionFilter implements ExceptionFilter {
+  private readonly logger = new Logger(HttpExceptionFilter.name);
+
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
     const response = ctx.getResponse<Response>();
@@ -40,8 +43,15 @@ export class HttpExceptionFilter implements ExceptionFilter {
             : resp.message
           : HTTP_MESSAGES[status] ?? message;
       }
-    } else if (exception instanceof Error) {
-      message = exception.message;
+    } else {
+      // Errores no-HttpException (p. ej. errores de BD): NO filtrar el detalle
+      // interno al cliente. Se registra el detalle técnico en el logger del
+      // servidor y se conserva el mensaje genérico ya asignado
+      // ('Error interno del servidor', línea 28) para la respuesta.
+      this.logger.error(
+        exception instanceof Error ? exception.message : String(exception),
+        exception instanceof Error ? exception.stack : undefined,
+      );
     }
 
     response.status(status).json({

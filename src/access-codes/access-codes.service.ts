@@ -4,6 +4,7 @@ import {
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import * as bcrypt from 'bcrypt';
+import { randomInt } from 'crypto';
 import { AccessCode } from './entities/access-code.entity';
 import { Patient } from '../patients/entities/patient.entity';
 import { User } from '../auth/entities/user.entity';
@@ -17,7 +18,7 @@ function randomCode(length = 8): string {
   const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
   let result = '';
   for (let i = 0; i < length; i++) {
-    result += chars[Math.floor(Math.random() * chars.length)];
+    result += chars[randomInt(0, chars.length)];
   }
   return result;
 }

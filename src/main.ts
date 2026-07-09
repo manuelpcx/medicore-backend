@@ -9,6 +9,7 @@ import { assertEncryptionKey } from './common/crypto/encryption';
 import { join } from 'path';
 import { existsSync, mkdirSync } from 'fs';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import helmet from 'helmet';
 
 async function bootstrap() {
   // Fail-fast: no arrancar sin una ENCRYPTION_KEY válida (cifrado en reposo).
@@ -18,6 +19,9 @@ async function bootstrap() {
 
   // ── Proxy trust (Railway / Render sit behind a reverse proxy) ───────────
   app.set('trust proxy', 1);
+
+  // ── Cabeceras de seguridad (helmet, valores por defecto) ────────────────
+  app.use(helmet());
 
   // ── CORS ────────────────────────────────────────────────────────────────
   const corsOrigin = process.env.CORS_ORIGIN || 'http://localhost:5173';

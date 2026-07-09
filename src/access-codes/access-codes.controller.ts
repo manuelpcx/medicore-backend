@@ -1,5 +1,6 @@
 import { Controller, Post, Delete, Body, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { AccessCodesService } from './access-codes.service';
 import { VerifyCodeDto } from './dto/verify-code.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
@@ -18,6 +19,7 @@ export class AccessCodesController {
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
   @Post('verify')
   @HttpCode(200)
   @ApiOperation({ summary: 'Verificar código y obtener snapshot del paciente (médico)' })

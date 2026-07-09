@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { ScheduleModule } from '@nestjs/schedule';
 import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthModule } from './auth/auth.module';
 import { PatientsModule } from './patients/patients.module';
 import { MedicalHistoryModule } from './medical-history/medical-history.module';
@@ -20,6 +21,8 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
     ScheduleModule.forRoot(),
+    // Rate limiting global: 100 req/min por IP (ver specs/add-rate-limiting-helmet)
+    ThrottlerModule.forRoot([{ ttl: 60000, limit: 100 }]),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       useFactory: (config: ConfigService) => {
@@ -29,8 +32,8 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
           type: 'postgres',
           url: dbUrl,
           autoLoadEntities: true,
-          // synchronize NUNCA en producción — usar migraciones
-          synchronize: !isProd,
+          // Esquema gestionado solo por migraciones en todos los entornos — synchronize desactivado
+          synchronize: false,
           logging: !isProd,
           // SSL requerido en Railway / Supabase / Neon
           ssl: isProd ? { rejectUnauthorized: false } : false,
@@ -55,6 +58,12 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
     AdminModule,
   ],
   providers: [
+    // El ThrottlerGuard se evalúa ANTES que el JwtAuthGuard (rate limiting
+    // antes que autenticación, incluso en endpoints @Public()).
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,

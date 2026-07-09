@@ -5,17 +5,21 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { MoreThan, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
-import { existsSync, unlinkSync, readdirSync } from 'fs';
-import { join } from 'path';
+import { createHash } from 'crypto';
+import { existsSync, unlinkSync } from 'fs';
+import { join, isAbsolute } from 'path';
 import { User } from './entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { Patient } from '../patients/entities/patient.entity';
+import { Exam } from '../exams/entities/exam.entity';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+
+const BCRYPT_COST = 10; // >= 10 (R5); corrige M4
 
 @Injectable()
 export class AuthService {
@@ -26,17 +30,20 @@ export class AuthService {
     private refreshRepo: Repository<RefreshToken>,
     @InjectRepository(Patient)
     private patientRepo: Repository<Patient>,
+    @InjectRepository(Exam)
+    private examRepo: Repository<Exam>,
     private jwtService: JwtService,
     private config: ConfigService,
   ) {}
 
   async register(dto: RegisterDto) {
-    const exists = await this.userRepo.findOne({ where: { email: dto.email } });
-    if (exists) throw new ConflictException('El email ya está registrado');
+    const email = this.normalizeEmail(dto.email);
+    const exists = await this.userRepo.findOne({ where: { email } });
+    if (exists) throw new ConflictException('No se pudo completar el registro con los datos proporcionados.');
 
     const hashed = await bcrypt.hash(dto.password, 10);
     const user = this.userRepo.create({
-      email: dto.email,
+      email,
       nombre: dto.nombre,
       password: hashed,
       fecha_nacimiento: dto.fecha_nacimiento as any,
@@ -56,11 +63,15 @@ export class AuthService {
   }
 
   async login(dto: LoginDto) {
-    const user = await this.userRepo.findOne({ where: { email: dto.email } });
+    const email = this.normalizeEmail(dto.email);
+    const user = await this.userRepo.findOne({ where: { email } });
     if (!user) throw new UnauthorizedException('Credenciales incorrectas');
 
     const valid = await bcrypt.compare(dto.password, user.password);
     if (!valid) throw new UnauthorizedException('Credenciales incorrectas');
+
+    // No emitir tokens a una cuenta desactivada; mismo mensaje genérico (R1, R2).
+    if (!user.activo) throw new UnauthorizedException('Credenciales incorrectas');
 
     // Registrar último login (usado por el panel de administración)
     user.last_login_at = new Date();
@@ -80,11 +91,25 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token inválido o expirado');
     }
 
-    const tokenHash = await bcrypt.hash(refreshToken, 10);
-    const stored = await this.refreshRepo.findOne({
-      where: { user_id: payload.sub, revocado: false },
+    // Localizar la sesión concreta: comparar el token recibido contra el hash
+    // almacenado de cada fila candidata (no aceptar por la mera existencia de
+    // alguna fila no revocada del usuario). (R4)
+    const digest = this.hashDigest(refreshToken);
+    const rows = await this.refreshRepo.find({
+      where: {
+        user_id: payload.sub,
+        revocado: false,
+        expires_at: MoreThan(new Date()),
+      },
     });
-    if (!stored) throw new UnauthorizedException('Sesión no encontrada');
+    let match: RefreshToken | undefined;
+    for (const row of rows) {
+      if (await bcrypt.compare(digest, row.token_hash)) {
+        match = row;
+        break;
+      }
+    }
+    if (!match) throw new UnauthorizedException('Sesión no encontrada');
 
     const user = await this.userRepo.findOne({ where: { id: payload.sub } });
     if (!user) throw new UnauthorizedException();
@@ -97,8 +122,24 @@ export class AuthService {
     return { access_token: accessToken, message: 'Token renovado' };
   }
 
-  async logout(userId: string) {
-    await this.refreshRepo.update({ user_id: userId, revocado: false }, { revocado: true });
+  async logout(userId: string, refreshToken?: string) {
+    if (refreshToken !== undefined) {
+      // Revocar únicamente la sesión cuyo hash coincide con el token recibido (R7).
+      // Idempotente: si ninguna coincide, no es un error.
+      const digest = this.hashDigest(refreshToken);
+      const rows = await this.refreshRepo.find({
+        where: { user_id: userId, revocado: false },
+      });
+      for (const row of rows) {
+        if (await bcrypt.compare(digest, row.token_hash)) {
+          await this.refreshRepo.update({ id: row.id }, { revocado: true });
+          break;
+        }
+      }
+    } else {
+      // Sin token: revocar todas las sesiones activas del usuario (R8).
+      await this.refreshRepo.update({ user_id: userId, revocado: false }, { revocado: true });
+    }
     return { message: 'Sesión cerrada' };
   }
 
@@ -114,20 +155,23 @@ export class AuthService {
     });
     if (!user) throw new NotFoundException('Usuario no encontrado');
 
-    // 1. Eliminar archivos físicos de exámenes
-    const uploadPath = process.env.UPLOAD_PATH || join(process.cwd(), 'uploads');
-    if (existsSync(uploadPath)) {
-      try {
-        const files = readdirSync(uploadPath);
-        // Los archivos de exámenes tienen el UUID del examen en el nombre
-        // La eliminación en cascada de la BD elimina los registros;
-        // aquí limpiamos los archivos del filesystem
-        files.forEach((f) => {
-          const fullPath = join(uploadPath, f);
-          try { unlinkSync(fullPath); } catch { /* ignorar errores de archivo individual */ }
-        });
-      } catch {
-        // No interrumpir el proceso si falla la limpieza de archivos
+    // 1. Recopilar y eliminar SOLO los archivos físicos de los exámenes
+    //    de este usuario (derivado de la BD, no de un readdir de la carpeta).
+    //    Debe hacerse ANTES de userRepo.remove: el onDelete CASCADE de Exam
+    //    borra las filas y dejaría inaccesible archivo_path.
+    if (user.patient) {
+      const exams = await this.examRepo.find({
+        where: { patient_id: user.patient.id },
+        select: { id: true, archivo_path: true },
+      });
+      for (const exam of exams) {
+        if (!exam.archivo_path) continue; // R4
+        const fullPath = this.resolveFilePath(exam.archivo_path); // R5
+        try {
+          if (existsSync(fullPath)) unlinkSync(fullPath); // R1, R4
+        } catch {
+          // no interrumpir el borrado de cuenta por un archivo individual (R4)
+        }
       }
     }
 
@@ -140,6 +184,16 @@ export class AuthService {
     return {
       message: 'Cuenta eliminada permanentemente. Todos tus datos han sido borrados.',
     };
+  }
+
+  /**
+   * Resuelve la ruta física del archivo. `archivo_path` (de multer) puede ser
+   * absoluto (UPLOAD_PATH absoluto) o relativo (UPLOAD_PATH relativo). Misma
+   * semántica que ExamsService.resolveFilePath: no usar join() a ciegas, ya que
+   * join(cwd, rutaAbsoluta) produce una ruta incorrecta.
+   */
+  private resolveFilePath(archivoPath: string): string {
+    return isAbsolute(archivoPath) ? archivoPath : join(process.cwd(), archivoPath);
   }
 
   private async generateTokens(user: User) {
@@ -155,12 +209,11 @@ export class AuthService {
       expiresIn: '7d',
     });
 
-    // Invalidar tokens anteriores del usuario
-    await this.refreshRepo.update({ user_id: user.id, revocado: false }, { revocado: true });
-
+    // Cada login/register crea su propia sesión (fila independiente); no se
+    // revocan las demás sesiones del usuario. (R6)
     const expires = new Date();
     expires.setDate(expires.getDate() + 7);
-    const tokenHash = await bcrypt.hash(refresh_token, 5);
+    const tokenHash = await bcrypt.hash(this.hashDigest(refresh_token), BCRYPT_COST);
 
     await this.refreshRepo.save(
       this.refreshRepo.create({
@@ -171,6 +224,18 @@ export class AuthService {
     );
 
     return { access_token, refresh_token };
+  }
+
+  // Digest de longitud fija (64 chars hex, < 72 bytes) para no chocar con el
+  // límite de 72 bytes de bcrypt y preservar toda la entropía del token. (R4)
+  private hashDigest(token: string): string {
+    return createHash('sha256').update(token).digest('hex');
+  }
+
+  // Normalización única (trim + lowercase) aplicada de forma idéntica en
+  // register y login para tratar emails equivalentes como la misma cuenta. (R3, R4, R5)
+  private normalizeEmail(email: string): string {
+    return email.trim().toLowerCase();
   }
 
   private sanitize(user: User) {

@@ -1,9 +1,11 @@
 import { Controller, Post, Delete, Body, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiBearerAuth } from '@nestjs/swagger';
+import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RefreshDto } from './dto/refresh.dto';
+import { LogoutDto } from './dto/logout.dto';
 import { Public } from '../common/decorators/public.decorator';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
 
@@ -13,6 +15,7 @@ export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Public()
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
   @Post('register')
   @ApiOperation({ summary: 'Registrar nuevo paciente' })
   register(@Body() dto: RegisterDto) {
@@ -20,6 +23,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
   @Post('login')
   @HttpCode(200)
   @ApiOperation({ summary: 'Iniciar sesión' })
@@ -28,6 +32,7 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { ttl: 60000, limit: 5 } })
   @Post('refresh')
   @HttpCode(200)
   @ApiOperation({ summary: 'Renovar access token' })
@@ -38,8 +43,8 @@ export class AuthController {
   @Post('logout')
   @HttpCode(200)
   @ApiOperation({ summary: 'Cerrar sesión' })
-  logout(@CurrentUser('id') userId: string) {
-    return this.authService.logout(userId);
+  logout(@CurrentUser('id') userId: string, @Body() dto?: LogoutDto) {
+    return this.authService.logout(userId, dto?.refresh_token);
   }
 
   @Delete('account')

@@ -8,10 +8,11 @@ import { JwtStrategy } from './strategies/jwt.strategy';
 import { User } from './entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { Patient } from '../patients/entities/patient.entity';
+import { Exam } from '../exams/entities/exam.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, RefreshToken, Patient]),
+    TypeOrmModule.forFeature([User, RefreshToken, Patient, Exam]),
     PassportModule,
     JwtModule.register({}),
   ],

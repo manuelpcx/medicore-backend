@@ -32,6 +32,23 @@ const fileFilter = (req: any, file: Express.Multer.File, cb: any) => {
   }
 };
 
+// Construye un valor de Content-Disposition seguro contra inyección de cabecera.
+// Sanea el nombre para el token ASCII `filename="..."` y añade el parámetro
+// RFC 5987 `filename*` con el nombre real pct-encodeado en UTF-8.
+function safeContentDisposition(disposition: 'inline' | 'attachment', filename: string): string {
+  const raw = filename ?? '';
+  const asciiFallback =
+    raw
+      .replace(/[\x00-\x1F\x7F]/g, '') // quita controles C0/DEL (incl. CR y LF) -> R1
+      .replace(/[/"\\]/g, '_')          // barra, comilla doble y backslash -> R2
+      .replace(/[^\x20-\x7E]/g, '_')    // resto de no-ASCII -> '_'
+      .trim() || 'archivo';             // por defecto seguro -> R4
+  const encoded =
+    encodeURIComponent(raw)             // pct-encode UTF-8
+      .replace(/['()*!]/g, (c) => '%' + c.charCodeAt(0).toString(16).toUpperCase()); // RFC 5987 ext-value -> R3
+  return `${disposition}; filename="${asciiFallback}"; filename*=UTF-8''${encoded}`;
+}
+
 @ApiTags('Exams')
 @ApiBearerAuth()
 @Controller('exams')
@@ -78,7 +95,7 @@ export class ExamsController {
     const { path, mimetype, nombre } = await this.service.getFile(userId, id);
     res.set({
       'Content-Type': mimetype,
-      'Content-Disposition': `inline; filename="${nombre}"`,
+      'Content-Disposition': safeContentDisposition('inline', nombre),
     });
     return new StreamableFile(createReadStream(path));
   }

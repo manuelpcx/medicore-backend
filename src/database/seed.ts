@@ -18,7 +18,8 @@ const ds = new DataSource({
   type: 'postgres',
   url: process.env.DATABASE_URL,
   entities: [User, RefreshToken, Patient, MedicalHistory, Medication, Exam, Allergy, Vaccine, AccessCode],
-  synchronize: true,
+  // El seed asume un esquema ya gestionado por migraciones — no muta el esquema
+  synchronize: false,
 });
 
 async function seed() {
