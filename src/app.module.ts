@@ -15,6 +15,7 @@ import { AccessCodesModule } from './access-codes/access-codes.module';
 import { NotificationsModule } from './notifications/notifications.module';
 import { HealthModule } from './health/health.module';
 import { AdminModule } from './admin/admin.module';
+import { FamilyModule } from './family/family.module';
 import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
 
 @Module({
@@ -56,6 +57,7 @@ import { JwtAuthGuard } from './common/guards/jwt-auth.guard';
     NotificationsModule,
     HealthModule,
     AdminModule,
+    FamilyModule,
   ],
   providers: [
     // El ThrottlerGuard se evalúa ANTES que el JwtAuthGuard (rate limiting

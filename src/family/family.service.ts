@@ -1,0 +1,240 @@
+import {
+  Injectable,
+  Logger,
+  ForbiddenException,
+  BadRequestException,
+  NotFoundException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { InjectRepository } from '@nestjs/typeorm';
+import { In, Repository } from 'typeorm';
+import { User } from '../auth/entities/user.entity';
+import { FamilyGroup } from './entities/family-group.entity';
+import { FamilyMember } from './entities/family-member.entity';
+import { InviteDto } from './dto/invite.dto';
+import { NotificationsService } from '../notifications/notifications.service';
+
+@Injectable()
+export class FamilyService {
+  private readonly logger = new Logger(FamilyService.name);
+
+  constructor(
+    @InjectRepository(FamilyGroup)
+    private readonly groupRepo: Repository<FamilyGroup>,
+    @InjectRepository(FamilyMember)
+    private readonly memberRepo: Repository<FamilyMember>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
+    private readonly notifications: NotificationsService,
+    private readonly config: ConfigService,
+  ) {}
+
+  // ── POST /family/invite (R9–R16, R35) ──────────────────────────────────────
+  async invite(user: User, dto: InviteDto): Promise<FamilyMember> {
+    // R10/R35: solo el owner con plan family invita.
+    if (user.plan !== 'family') {
+      // R36: downgrade — si ya tenía grupo pero perdió el plan, solo advertencia
+      // (sin lógica de resolución de miembros), además del 403.
+      const existingGroup = await this.groupRepo.findOne({
+        where: { owner_id: user.id },
+      });
+      if (existingGroup) {
+        this.logger.warn(
+          `El titular ${user.id} tiene un grupo familiar pero ya no tiene plan 'family' (downgrade)`,
+        );
+      }
+      throw new ForbiddenException(
+        'Solo un titular con plan familiar puede invitar miembros',
+      );
+    }
+
+    // R11: creación perezosa del grupo del titular.
+    let group = await this.groupRepo.findOne({
+      where: { owner_id: user.id },
+    });
+    if (!group) {
+      group = await this.groupRepo.save(
+        this.groupRepo.create({ owner_id: user.id, max_members: 4 }),
+      );
+    }
+
+    // R12: tope de max_members total (titular + miembros pending/accepted).
+    const occupied = await this.memberRepo.count({
+      where: {
+        family_group_id: group.id,
+        status: In(['pending', 'accepted']),
+      },
+    });
+    if (occupied >= group.max_members - 1) {
+      throw new BadRequestException(
+        'El grupo familiar ya alcanzó su número máximo de miembros',
+      );
+    }
+
+    // R9: normalizar email y resolver cuenta existente.
+    const email = dto.email.trim().toLowerCase();
+    const existing = await this.userRepo.findOne({ where: { email } });
+
+    const member = await this.memberRepo.save(
+      this.memberRepo.create({
+        family_group_id: group.id,
+        user_id: existing?.id ?? null,
+        email,
+        relationship: dto.relationship,
+        invited_by: user.id,
+        status: 'pending',
+      }),
+    );
+
+    // R14/R16: email-sin-cuenta → email de invitación en try/catch que no rompe.
+    if (!existing) {
+      try {
+        const base =
+          this.config.get<string>('CORS_ORIGIN') ?? 'http://localhost:5173';
+        const acceptUrl = `${base}/family/accept/${member.id}`;
+        await this.notifications.sendFamilyInvitation({
+          email,
+          inviterName: user.nombre,
+          acceptUrl,
+        });
+      } catch (err) {
+        this.logger.error(
+          `Error enviando invitación familiar a ${email}: ${(err as Error).message}`,
+          (err as Error).stack,
+        );
+      }
+    }
+    // R15: si existe cuenta, la invitación se descubre vía GET /family/invitations.
+
+    return member;
+  }
+
+  // ── GET /family/members (R17, R18) ─────────────────────────────────────────
+  async listMembers(user: User) {
+    const groupId = await this.resolveGroupId(user);
+    if (!groupId) return [];
+
+    const members = await this.memberRepo.find({
+      where: { family_group_id: groupId },
+      relations: { user: true },
+      order: { invited_at: 'ASC' },
+    });
+
+    return members.map((m) => ({
+      id: m.id,
+      nombre: m.user?.nombre ?? m.email,
+      relationship: m.relationship,
+      status: m.status,
+      accepted_at: m.accepted_at,
+    }));
+  }
+
+  // ── GET /family/invitations (R19) ──────────────────────────────────────────
+  listInvitations(user: User) {
+    return this.memberRepo.find({
+      where: { user_id: user.id, status: 'pending' },
+      order: { invited_at: 'DESC' },
+    });
+  }
+
+  // ── POST /family/accept/:invitationId (R20–R22) ────────────────────────────
+  async accept(user: User, invitationId: string): Promise<FamilyMember> {
+    const member = await this.loadInvitationForRecipient(user, invitationId);
+    member.status = 'accepted';
+    member.accepted_at = new Date();
+    if (!member.user_id) member.user_id = user.id;
+    await this.memberRepo.save(member);
+
+    await this.userRepo.update(user.id, {
+      family_group_id: member.family_group_id,
+    });
+
+    return member;
+  }
+
+  // ── POST /family/reject/:invitationId (R23) ────────────────────────────────
+  async reject(user: User, invitationId: string): Promise<FamilyMember> {
+    const member = await this.loadInvitationForRecipient(user, invitationId);
+    member.status = 'rejected';
+    // No se toca user.family_group_id.
+    return this.memberRepo.save(member);
+  }
+
+  // ── DELETE /family/members/:memberId (R24–R26) ─────────────────────────────
+  async removeMember(user: User, memberId: string) {
+    // Solo el owner del grupo puede remover.
+    const group = await this.groupRepo.findOne({
+      where: { owner_id: user.id },
+    });
+    if (!group) throw new ForbiddenException();
+
+    const member = await this.memberRepo.findOne({
+      where: { id: memberId, family_group_id: group.id },
+    });
+    if (!member) throw new ForbiddenException();
+
+    // R24: desvincular al miembro (libera cupo). R25: NO se toca historial/paciente.
+    if (member.user_id) {
+      await this.userRepo.update(member.user_id, { family_group_id: null });
+    }
+    await this.memberRepo.remove(member);
+
+    return { message: 'Miembro removido del grupo familiar' };
+  }
+
+  // ── GET /family/group (R27) ────────────────────────────────────────────────
+  async getGroup(user: User) {
+    const groupId = await this.resolveGroupId(user);
+    if (!groupId) throw new NotFoundException('No perteneces a ningún grupo familiar');
+
+    const group = await this.groupRepo.findOne({
+      where: { id: groupId },
+      relations: { owner: true },
+    });
+    if (!group) throw new NotFoundException('Grupo familiar no encontrado');
+
+    const acceptedCount = await this.memberRepo.count({
+      where: { family_group_id: group.id, status: 'accepted' },
+    });
+
+    return {
+      id: group.id,
+      owner: {
+        id: group.owner?.id ?? group.owner_id,
+        nombre: group.owner?.nombre ?? null,
+      },
+      max_members: group.max_members,
+      members: acceptedCount,
+      available: group.max_members - (1 + acceptedCount),
+    };
+  }
+
+  // ── Helpers internos ───────────────────────────────────────────────────────
+
+  /** Grupo del solicitante: como owner (owner_id) o como miembro (family_group_id). */
+  private async resolveGroupId(user: User): Promise<string | null> {
+    const owned = await this.groupRepo.findOne({
+      where: { owner_id: user.id },
+    });
+    if (owned) return owned.id;
+    return user.family_group_id ?? null;
+  }
+
+  /** Carga la invitación (404) y verifica que el solicitante es el destinatario (403). */
+  private async loadInvitationForRecipient(
+    user: User,
+    invitationId: string,
+  ): Promise<FamilyMember> {
+    const member = await this.memberRepo.findOne({
+      where: { id: invitationId },
+    });
+    if (!member) throw new NotFoundException('Invitación no encontrada');
+
+    const email = user.email.trim().toLowerCase();
+    const isRecipient =
+      member.user_id === user.id || member.email === email;
+    if (!isRecipient) throw new ForbiddenException();
+
+    return member;
+  }
+}

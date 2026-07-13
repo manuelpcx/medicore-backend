@@ -18,6 +18,11 @@ import {
   appointmentHtml,
   type AppointmentEmailData,
 } from './templates/appointment-reminder.template';
+import {
+  familyInvitationSubject,
+  familyInvitationHtml,
+  type FamilyInvitationEmailData,
+} from './templates/family-invitation.template';
 
 @Injectable()
 export class NotificationsService {
@@ -61,6 +66,14 @@ export class NotificationsService {
       to: data.email,
       subject: appointmentSubject(),
       html: appointmentHtml(data),
+    });
+  }
+
+  async sendFamilyInvitation(data: FamilyInvitationEmailData): Promise<void> {
+    await this.send({
+      to: data.email,
+      subject: familyInvitationSubject(data.inviterName),
+      html: familyInvitationHtml(data),
     });
   }
 

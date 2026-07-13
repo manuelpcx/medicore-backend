@@ -63,6 +63,18 @@ export class User {
   @Column({ default: true })
   notif_appointments: boolean;
 
+  /**
+   * Grupo familiar al que pertenece la cuenta (columna escalar; la FK
+   * → family_groups(id) ON DELETE SET NULL se declara en la migración R7).
+   * Se usa escalar para evitar dependencia circular User ↔ FamilyGroup.
+   */
+  @Column({ type: 'uuid', nullable: true })
+  family_group_id: string | null;
+
+  /** Plan de la cuenta. Solo `family` habilita ser owner e invitar. */
+  @Column({ type: 'varchar', length: 20, default: 'free' })
+  plan: 'free' | 'pro' | 'family';
+
   @OneToOne(() => Patient, (patient) => patient.user, { cascade: true })
   patient: Patient;
 
