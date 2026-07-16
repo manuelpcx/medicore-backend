@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   ConflictException,
   UnauthorizedException,
   NotFoundException,
@@ -18,11 +19,14 @@ import { Patient } from '../patients/entities/patient.entity';
 import { Exam } from '../exams/entities/exam.entity';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { RecaptchaService } from './recaptcha.service';
 
 const BCRYPT_COST = 10; // >= 10 (R5); corrige M4
 
 @Injectable()
 export class AuthService {
+  private readonly logger = new Logger(AuthService.name);
+
   constructor(
     @InjectRepository(User)
     private userRepo: Repository<User>,
@@ -34,9 +38,14 @@ export class AuthService {
     private examRepo: Repository<Exam>,
     private jwtService: JwtService,
     private config: ConfigService,
+    private recaptcha: RecaptchaService,
   ) {}
 
   async register(dto: RegisterDto) {
+    // Verificar reCAPTCHA ANTES de tocar la BD: si lanza (400/503) no se crea
+    // ninguna cuenta ni perfil de paciente (R3, R4, R5).
+    await this.recaptcha.verify(dto.recaptcha_token);
+
     const email = this.normalizeEmail(dto.email);
     const exists = await this.userRepo.findOne({ where: { email } });
     if (exists) throw new ConflictException('No se pudo completar el registro con los datos proporcionados.');
@@ -60,6 +69,26 @@ export class AuthService {
 
     const tokens = await this.generateTokens(user);
     return { user: this.sanitize(user), ...tokens, message: 'Cuenta creada exitosamente' };
+  }
+
+  /**
+   * Elige o cambia el plan de la cuenta. Activación directa, sin pasarela de
+   * pago (R9, R12). Registra advertencia si baja de `family` (R13).
+   */
+  async updatePlan(userId: string, plan: 'free' | 'pro' | 'family') {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (!user) throw new NotFoundException('Usuario no encontrado');
+
+    if (user.plan === 'family' && plan !== 'family') {
+      this.logger.warn(
+        `Usuario ${user.id} baja de plan 'family' a '${plan}' (downgrade)`,
+      );
+    }
+
+    user.plan = plan;
+    await this.userRepo.save(user);
+
+    return { user: this.sanitize(user), message: 'Plan actualizado' };
   }
 
   async login(dto: LoginDto) {

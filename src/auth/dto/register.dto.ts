@@ -6,6 +6,7 @@ import {
   IsOptional,
   IsDateString,
   IsBoolean,
+  IsNotEmpty,
   Equals,
 } from 'class-validator';
 
@@ -49,4 +50,11 @@ export class RegisterDto {
     message: 'Debes aceptar los términos y la política de privacidad para continuar',
   })
   consent_accepted: boolean;
+
+  @ApiProperty({
+    description: 'Token del widget reCAPTCHA v2 ("No soy un robot")',
+  })
+  @IsString()
+  @IsNotEmpty({ message: 'Verificación reCAPTCHA requerida' })
+  recaptcha_token: string;
 }

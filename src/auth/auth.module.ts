@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { RecaptchaService } from './recaptcha.service';
 import { JwtStrategy } from './strategies/jwt.strategy';
 import { User } from './entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
@@ -17,7 +18,7 @@ import { Exam } from '../exams/entities/exam.entity';
     JwtModule.register({}),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, RecaptchaService, JwtStrategy],
   exports: [AuthService, TypeOrmModule],
 })
 export class AuthModule {}
