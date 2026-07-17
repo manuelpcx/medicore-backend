@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import * as nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
@@ -25,15 +25,20 @@ import {
 } from './templates/family-invitation.template';
 
 @Injectable()
-export class NotificationsService {
+export class NotificationsService implements OnModuleInit {
   private readonly logger = new Logger(NotificationsService.name);
   private transporter: Transporter;
+  private readonly smtpHost: string;
+  private readonly smtpPort: number;
 
   constructor(private readonly config: ConfigService) {
+    const host = this.config.get<string>('MAIL_HOST', 'smtp.resend.com');
     const port = this.config.get<number>('MAIL_PORT', 465);
     const secure = this.config.get<string>('MAIL_SECURE', port === 465 ? 'true' : 'false') === 'true';
+    this.smtpHost = host;
+    this.smtpPort = port;
     this.transporter = nodemailer.createTransport({
-      host: this.config.get<string>('MAIL_HOST', 'smtp.resend.com'),
+      host,
       port,
       secure,
       auth: {
@@ -41,6 +46,19 @@ export class NotificationsService {
         pass: this.config.get<string>('MAIL_PASS'),
       },
     });
+  }
+
+  onModuleInit(): void {
+    this.transporter
+      .verify()
+      .then(() => {
+        this.logger.log(`SMTP conectado a ${this.smtpHost}:${this.smtpPort}`);
+      })
+      .catch((err: unknown) => {
+        this.logger.error(
+          `No se pudo conectar al SMTP ${this.smtpHost}:${this.smtpPort}: ${(err as Error).message}`,
+        );
+      });
   }
 
   // ── Métodos públicos ────────────────────────────────────────────────────────
