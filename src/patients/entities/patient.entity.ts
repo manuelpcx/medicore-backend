@@ -3,6 +3,7 @@ import {
   PrimaryGeneratedColumn,
   Column,
   OneToOne,
+  ManyToOne,
   OneToMany,
   JoinColumn,
   UpdateDateColumn,
@@ -21,12 +22,46 @@ export class Patient {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
-  user_id: string;
+  // Nullable: un menor dependiente no tiene cuenta/`User` (user_id = null).
+  @Column({ type: 'uuid', nullable: true })
+  user_id: string | null;
 
   @OneToOne(() => User, (user) => user.patient, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'user_id' })
   user: User;
+
+  // ── Menor dependiente (espacio del menor) ──────────────────────────────────
+  // Adulto propietario que administra a este menor (null en pacientes adultos).
+  @Column({ type: 'uuid', nullable: true })
+  owner_id: string | null;
+
+  @ManyToOne(() => User, { onDelete: 'CASCADE' })
+  @JoinColumn({ name: 'owner_id' })
+  owner: User;
+
+  @Column({ default: false })
+  is_minor: boolean;
+
+  // Fecha de nacimiento del menor: `date` (sin cifrar) para calcular la edad.
+  @Column({ type: 'date', nullable: true })
+  birth_date: string | null;
+
+  // Consentimiento del adulto: quién lo dio y cuándo.
+  @Column({ type: 'uuid', nullable: true })
+  consent_by: string | null;
+
+  @Column({ type: 'timestamptz', nullable: true })
+  consent_at: Date | null;
+
+  // Identidad del menor (no hay `User` de dónde tomarla). `nombre` es PII -> cifrado.
+  @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })
+  nombre: string | null;
+
+  @Column({ type: 'varchar', length: 20, nullable: true })
+  sexo: string | null;
+
+  @Column({ type: 'varchar', length: 30, nullable: true })
+  relacion: string | null;
 
   // Signos vitales — cifrados en reposo (se devuelven como string cifrado).
   @Column({ type: 'text', nullable: true, transformer: encryptedColumn() })

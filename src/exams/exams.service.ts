@@ -41,7 +41,8 @@ export class ExamsService {
     @InjectRepository(Patient) private patientRepo: Repository<Patient>,
   ) {}
 
-  private async pid(userId: string) {
+  private async pid(userId: string, patientId?: string | null) {
+    if (patientId) return patientId;
     const p = await this.patientRepo.findOne({ where: { user_id: userId } });
     if (!p) throw new NotFoundException('Paciente no encontrado');
     return p.id;
@@ -57,14 +58,19 @@ export class ExamsService {
     return isAbsolute(archivoPath) ? archivoPath : join(process.cwd(), archivoPath);
   }
 
-  findAll(userId: string) {
-    return this.pid(userId).then((id) =>
+  findAll(userId: string, patientId?: string | null) {
+    return this.pid(userId, patientId).then((id) =>
       this.repo.find({ where: { patient_id: id }, order: { fecha: 'DESC' } }),
     );
   }
 
-  async create(userId: string, dto: CreateExamDto, file?: Express.Multer.File) {
-    const id = await this.pid(userId);
+  async create(
+    userId: string,
+    dto: CreateExamDto,
+    file?: Express.Multer.File,
+    patientId?: string | null,
+  ) {
+    const id = await this.pid(userId, patientId);
     let mimetype: string | undefined;
     if (file) {
       const detected = detectMimeFromMagicBytes(this.resolveFilePath(file.path)); // R5
@@ -87,24 +93,24 @@ export class ExamsService {
     return this.repo.save(exam);
   }
 
-  async findOne(userId: string, examId: string) {
-    const id = await this.pid(userId);
+  async findOne(userId: string, examId: string, patientId?: string | null) {
+    const id = await this.pid(userId, patientId);
     const exam = await this.repo.findOne({ where: { id: examId } });
     if (!exam) throw new NotFoundException('Examen no encontrado');
     if (exam.patient_id !== id) throw new ForbiddenException();
     return exam;
   }
 
-  async getFile(userId: string, examId: string) {
-    const exam = await this.findOne(userId, examId);
+  async getFile(userId: string, examId: string, patientId?: string | null) {
+    const exam = await this.findOne(userId, examId, patientId);
     if (!exam.archivo_path) throw new NotFoundException('Este examen no tiene archivo adjunto');
     const fullPath = this.resolveFilePath(exam.archivo_path);
     if (!existsSync(fullPath)) throw new NotFoundException('Archivo no encontrado en el servidor');
     return { path: fullPath, mimetype: exam.archivo_mimetype, nombre: exam.archivo_nombre };
   }
 
-  async remove(userId: string, examId: string) {
-    const exam = await this.findOne(userId, examId);
+  async remove(userId: string, examId: string, patientId?: string | null) {
+    const exam = await this.findOne(userId, examId, patientId);
     if (exam.archivo_path) {
       const fullPath = this.resolveFilePath(exam.archivo_path);
       if (existsSync(fullPath)) unlinkSync(fullPath);

@@ -35,9 +35,19 @@ export class AccessCodesService {
     @InjectRepository(Vaccine) private vaccineRepo: Repository<Vaccine>,
   ) {}
 
-  async generate(userId: string) {
-    const patient = await this.patientRepo.findOne({ where: { user_id: userId } });
+  // Resuelve el patient: el del menor validado por el guard si viene
+  // `patientId`, o el Patient del propio adulto autenticado.
+  private async resolvePatient(userId: string, patientId?: string | null) {
+    const where = patientId
+      ? { id: patientId }
+      : { user_id: userId };
+    const patient = await this.patientRepo.findOne({ where });
     if (!patient) throw new NotFoundException('Paciente no encontrado');
+    return patient;
+  }
+
+  async generate(userId: string, patientId?: string | null) {
+    const patient = await this.resolvePatient(userId, patientId);
 
     // Revocar códigos anteriores activos
     await this.codeRepo.update(
@@ -83,9 +93,8 @@ export class AccessCodesService {
     return this.buildSnapshot(matched.patient_id);
   }
 
-  async revoke(userId: string) {
-    const patient = await this.patientRepo.findOne({ where: { user_id: userId } });
-    if (!patient) throw new NotFoundException('Paciente no encontrado');
+  async revoke(userId: string, patientId?: string | null) {
+    const patient = await this.resolvePatient(userId, patientId);
 
     const result = await this.codeRepo.update(
       { patient_id: patient.id, revocado: false, usado: false },
@@ -102,7 +111,8 @@ export class AccessCodesService {
     });
     if (!patient) throw new NotFoundException();
 
-    const { password, ...safeUser } = patient.user as any;
+    // Un menor dependiente no tiene `User`: su identidad vive en el Patient.
+    const { password, ...safeUser } = (patient.user as any) ?? {};
 
     const [alergias, medicamentosActivos, ultimasConsultas, vacunas] = await Promise.all([
       this.allergyRepo.find({ where: { patient_id: patientId } }),
@@ -117,10 +127,11 @@ export class AccessCodesService {
 
     return {
       paciente: {
-        nombre: safeUser.nombre,
-        email: safeUser.email,
-        fecha_nacimiento: safeUser.fecha_nacimiento,
-        tipo_sangre: safeUser.tipo_sangre,
+        nombre: safeUser.nombre ?? patient.nombre,
+        email: safeUser.email ?? null,
+        fecha_nacimiento: safeUser.fecha_nacimiento ?? patient.birth_date,
+        tipo_sangre: safeUser.tipo_sangre ?? null,
+        es_menor: patient.is_minor,
         peso: patient.peso,
         altura: patient.altura,
         presion_arterial: patient.presion_arterial,

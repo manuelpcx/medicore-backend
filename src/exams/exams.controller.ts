@@ -1,16 +1,18 @@
 import {
   Controller, Get, Post, Delete, Body, Param,
   ParseUUIDPipe, UseInterceptors, UploadedFile,
-  Res, StreamableFile,
+  Res, StreamableFile, UseGuards,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { diskStorage } from 'multer';
 import { extname } from 'path';
 import { randomUUID } from 'crypto';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiConsumes, ApiQuery } from '@nestjs/swagger';
 import { ExamsService } from './exams.service';
 import { CreateExamDto } from './dto/create-exam.dto';
 import { CurrentUser } from '../common/decorators/current-user.decorator';
+import { PatientScopeGuard } from '../common/guards/patient-scope.guard';
+import { ScopedPatientId } from '../common/decorators/scoped-patient-id.decorator';
 import { createReadStream } from 'fs';
 import type { Response } from 'express';
 
@@ -51,14 +53,16 @@ function safeContentDisposition(disposition: 'inline' | 'attachment', filename: 
 
 @ApiTags('Exams')
 @ApiBearerAuth()
+@ApiQuery({ name: 'patientId', required: false, description: 'Operar sobre un menor propio' })
+@UseGuards(PatientScopeGuard)
 @Controller('exams')
 export class ExamsController {
   constructor(private readonly service: ExamsService) {}
 
   @Get()
   @ApiOperation({ summary: 'Listar exámenes' })
-  findAll(@CurrentUser('id') userId: string) {
-    return this.service.findAll(userId);
+  findAll(@CurrentUser('id') userId: string, @ScopedPatientId() patientId: string | null) {
+    return this.service.findAll(userId, patientId);
   }
 
   @Post()
@@ -74,15 +78,20 @@ export class ExamsController {
   create(
     @CurrentUser('id') userId: string,
     @Body() dto: CreateExamDto,
+    @ScopedPatientId() patientId: string | null,
     @UploadedFile() file?: Express.Multer.File,
   ) {
-    return this.service.create(userId, dto, file);
+    return this.service.create(userId, dto, file, patientId);
   }
 
   @Get(':id')
   @ApiOperation({ summary: 'Obtener examen por ID' })
-  findOne(@CurrentUser('id') userId: string, @Param('id', ParseUUIDPipe) id: string) {
-    return this.service.findOne(userId, id);
+  findOne(
+    @CurrentUser('id') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @ScopedPatientId() patientId: string | null,
+  ) {
+    return this.service.findOne(userId, id, patientId);
   }
 
   @Get(':id/file')
@@ -90,9 +99,10 @@ export class ExamsController {
   async getFile(
     @CurrentUser('id') userId: string,
     @Param('id', ParseUUIDPipe) id: string,
+    @ScopedPatientId() patientId: string | null,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const { path, mimetype, nombre } = await this.service.getFile(userId, id);
+    const { path, mimetype, nombre } = await this.service.getFile(userId, id, patientId);
     res.set({
       'Content-Type': mimetype,
       'Content-Disposition': safeContentDisposition('inline', nombre),
@@ -102,7 +112,11 @@ export class ExamsController {
 
   @Delete(':id')
   @ApiOperation({ summary: 'Eliminar examen' })
-  remove(@CurrentUser('id') userId: string, @Param('id', ParseUUIDPipe) id: string) {
-    return this.service.remove(userId, id);
+  remove(
+    @CurrentUser('id') userId: string,
+    @Param('id', ParseUUIDPipe) id: string,
+    @ScopedPatientId() patientId: string | null,
+  ) {
+    return this.service.remove(userId, id, patientId);
   }
 }

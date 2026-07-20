@@ -9,6 +9,7 @@ import { MedicalHistory } from '../medical-history/entities/medical-history.enti
 import { Medication } from '../medications/entities/medication.entity';
 import { Allergy } from '../allergies/entities/allergy.entity';
 import { Vaccine } from '../vaccines/entities/vaccine.entity';
+import { PatientScopeGuard } from '../common/guards/patient-scope.guard';
 
 @Module({
   imports: [
@@ -18,6 +19,6 @@ import { Vaccine } from '../vaccines/entities/vaccine.entity';
     ]),
   ],
   controllers: [AccessCodesController],
-  providers: [AccessCodesService],
+  providers: [AccessCodesService, PatientScopeGuard],
 })
 export class AccessCodesModule {}

@@ -12,25 +12,26 @@ export class VaccinesService {
     @InjectRepository(Patient) private patientRepo: Repository<Patient>,
   ) {}
 
-  private async pid(userId: string) {
+  private async pid(userId: string, patientId?: string | null) {
+    if (patientId) return patientId;
     const p = await this.patientRepo.findOne({ where: { user_id: userId } });
     if (!p) throw new NotFoundException('Paciente no encontrado');
     return p.id;
   }
 
-  findAll(userId: string) {
-    return this.pid(userId).then((id) =>
+  findAll(userId: string, patientId?: string | null) {
+    return this.pid(userId, patientId).then((id) =>
       this.repo.find({ where: { patient_id: id }, order: { fecha: 'DESC' } }),
     );
   }
 
-  async create(userId: string, dto: CreateVaccineDto) {
-    const id = await this.pid(userId);
+  async create(userId: string, dto: CreateVaccineDto, patientId?: string | null) {
+    const id = await this.pid(userId, patientId);
     return this.repo.save(this.repo.create({ ...dto, patient_id: id }));
   }
 
-  async remove(userId: string, vaccineId: string) {
-    const id = await this.pid(userId);
+  async remove(userId: string, vaccineId: string, patientId?: string | null) {
+    const id = await this.pid(userId, patientId);
     const v = await this.repo.findOne({ where: { id: vaccineId } });
     if (!v) throw new NotFoundException('Vacuna no encontrada');
     if (v.patient_id !== id) throw new ForbiddenException();
