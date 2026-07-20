@@ -1,7 +1,6 @@
 import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import * as nodemailer from 'nodemailer';
-import type { Transporter } from 'nodemailer';
+import { Resend } from 'resend';
 
 import {
   dailyMedsSubject,
@@ -27,38 +26,32 @@ import {
 @Injectable()
 export class NotificationsService implements OnModuleInit {
   private readonly logger = new Logger(NotificationsService.name);
-  private transporter: Transporter;
-  private readonly smtpHost: string;
-  private readonly smtpPort: number;
+  private readonly apiKey?: string;
+  private readonly from: string;
+  private readonly resend?: Resend;
 
   constructor(private readonly config: ConfigService) {
-    const host = this.config.get<string>('MAIL_HOST', 'smtp.resend.com');
-    const port = this.config.get<number>('MAIL_PORT', 465);
-    const secure = this.config.get<string>('MAIL_SECURE', port === 465 ? 'true' : 'false') === 'true';
-    this.smtpHost = host;
-    this.smtpPort = port;
-    this.transporter = nodemailer.createTransport({
-      host,
-      port,
-      secure,
-      auth: {
-        user: this.config.get<string>('MAIL_USER', 'resend'),
-        pass: this.config.get<string>('MAIL_PASS'),
-      },
-    });
+    const apiKey = this.config.get<string>('RESEND_API_KEY');
+    this.apiKey = apiKey;
+    this.from = this.config.get<string>(
+      'MAIL_FROM',
+      'Medicore <no-reply@medicore.app>',
+    );
+    // Instanciar el cliente solo si hay key: evita warnings del SDK con
+    // `new Resend(undefined)` y deja un flag limpio (`!!this.resend`) que
+    // gobierna el degradado a log cuando falta la key.
+    this.resend = apiKey ? new Resend(apiKey) : undefined;
   }
 
   onModuleInit(): void {
-    this.transporter
-      .verify()
-      .then(() => {
-        this.logger.log(`SMTP conectado a ${this.smtpHost}:${this.smtpPort}`);
-      })
-      .catch((err: unknown) => {
-        this.logger.error(
-          `No se pudo conectar al SMTP ${this.smtpHost}:${this.smtpPort}: ${(err as Error).message}`,
-        );
-      });
+    // Sin llamada de red: solo se comprueba la presencia de la API key.
+    if (this.resend) {
+      this.logger.log('Resend listo — envío de correos habilitado (API HTTP).');
+    } else {
+      this.logger.warn(
+        'RESEND_API_KEY ausente: los correos se registrarán en log pero NO se enviarán.',
+      );
+    }
   }
 
   // ── Métodos públicos ────────────────────────────────────────────────────────
@@ -98,14 +91,41 @@ export class NotificationsService implements OnModuleInit {
   // ── Interno ─────────────────────────────────────────────────────────────────
 
   private async send(options: { to: string; subject: string; html: string }): Promise<void> {
-    const from = this.config.get<string>('MAIL_FROM', 'Medi-History <no-reply@medi-history.app>');
+    const { to, subject, html } = options;
+
+    // Degradado sin key: log claro y sin llamada de red. Nunca lanza.
+    if (!this.resend) {
+      this.logger.warn(
+        `RESEND_API_KEY ausente: correo a ${to} NO enviado — "${subject}"`,
+      );
+      return;
+    }
+
     try {
-      await this.transporter.sendMail({ from, ...options });
-      this.logger.log(`Email enviado a ${options.to} — "${options.subject}"`);
+      const { data, error } = await this.resend.emails.send({
+        from: this.from,
+        to,
+        subject,
+        html,
+      });
+
+      // Error de aplicación de Resend (dominio no verificado, 4xx, key
+      // inválida…): se registra el motivo y NO se relanza.
+      if (error) {
+        this.logger.error(
+          `Error de Resend enviando a ${to} — "${subject}": ${error.name} — ${error.message}`,
+        );
+        return;
+      }
+
+      this.logger.log(
+        `Email enviado a ${to} — id ${data?.id} — "${subject}"`,
+      );
     } catch (err) {
-      // Nunca relanzar: un email fallido no debe tumbar el cron job
+      // Rechazo de la promesa (red/timeout). Nunca relanzar: un email
+      // fallido no debe tumbar el cron job ni la invitación familiar.
       this.logger.error(
-        `Error enviando email a ${options.to}: ${(err as Error).message}`,
+        `Error enviando email a ${to}: ${(err as Error).message}`,
         (err as Error).stack,
       );
     }
