@@ -71,7 +71,7 @@ export class PaymentsService {
       }),
     ); // R8, R11 — no toca user.plan (el plan de Flow se resuelve de nuevo al confirmar, R15)
 
-    return { checkout_url: url };
+    return { checkout_url: `${url}?token=${token}` };
   }
 
   // ── Webhook (R13–R18) ───────────────────────────────────────────────────────
