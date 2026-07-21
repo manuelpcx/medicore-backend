@@ -142,12 +142,10 @@ export class FlowClientService {
   async registerCustomer(input: {
     customerId: string;
     urlReturn: string;
-    urlConfirmation: string;
   }): Promise<{ url: string; token: string }> {
     const res = await this.post('/customer/register', {
       customerId: input.customerId,
-      url_return: input.urlReturn,
-      url_confirmation: input.urlConfirmation,
+      url_return: input.urlReturn, // únicos params + apiKey/s: contrato oficial (no existe url_confirmation)
     });
     return { url: String(res.url ?? ''), token: String(res.token ?? '') };
   }

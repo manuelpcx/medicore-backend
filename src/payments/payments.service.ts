@@ -30,12 +30,17 @@ export class PaymentsService {
   async checkout(user: User, plan: SubscriptionPlan): Promise<{ checkout_url: string }> {
     this.flow.assertConfigured(); // R6
 
-    const existing = await this.subRepo.findOne({
+    const vigentes = await this.subRepo.find({
       where: { user_id: user.id, status: In(this.VIGENTE) },
     });
-    if (existing) {
-      throw new ConflictException('Ya tienes una suscripción en curso.'); // R10
+    const bloqueante = vigentes.find((s) => s.status === 'active' || s.status === 'past_due');
+    if (bloqueante) {
+      throw new ConflictException('Ya tienes una suscripción en curso.'); // R15 (409 como hoy)
     }
+    for (const stuck of vigentes) {
+      stuck.status = 'expired'; // R14 — intento previo que nunca se completó
+    }
+    if (vigentes.length) await this.subRepo.save(vigentes);
 
     this.resolveFlowPlanId(plan); // R6: incluye validar FLOW_PLAN_ID_<PLAN> antes de llamar a Flow
 
@@ -57,8 +62,7 @@ export class PaymentsService {
 
     const { url, token } = await this.flow.registerCustomer({
       customerId: flowCustomerId,
-      urlReturn: `${this.frontendBaseUrl()}/elegir-plan`,
-      urlConfirmation: `${this.apiPublicUrl()}/payments/webhook`,
+      urlReturn: `${this.apiPublicUrl()}/payments/register-return`, // R11: el token llega por POST aquí
     });
 
     await this.subRepo.save(
@@ -108,6 +112,27 @@ export class PaymentsService {
     }); // R15 — atómico: Subscription + User.plan
 
     return { message: 'OK' };
+  }
+
+  // ── Retorno del registro de tarjeta (url_return de Flow) ────────────────────
+  /**
+   * Procesa el POST de Flow a url_return. NUNCA lanza: cualquier resultado
+   * (éxito, rechazo, token ausente/desconocido, Flow caído) termina en el
+   * redirect a la SPA; el estado real lo resuelve la SPA por polling.
+   */
+  async handleRegisterReturn(token?: unknown): Promise<{ redirectUrl: string }> {
+    if (typeof token === 'string' && token.trim() !== '') {
+      try {
+        await this.handleWebhook(token); // R2–R5: misma lógica segura, sin duplicar
+      } catch (err) {
+        this.logger.error(
+          `register-return: error procesando token: ${err instanceof Error ? err.message : String(err)}`,
+        ); // R10 — la Subscription queda en su estado previo
+      }
+    } else {
+      this.logger.warn('register-return recibido sin token'); // R8
+    }
+    return { redirectUrl: `${this.frontendBaseUrl()}/elegir-plan` }; // R6
   }
 
   // ── Consultar estado (R19–R21) ──────────────────────────────────────────────
@@ -212,7 +237,7 @@ export class PaymentsService {
     return null;
   }
 
-  /** URL pública de ESTE backend, usada para construir urlConfirmation (webhook). */
+  /** URL pública de ESTE backend, usada para construir url_return (/payments/register-return). */
   private apiPublicUrl(): string {
     const configured = this.config.get<string>('API_PUBLIC_URL')?.trim();
     if (configured) return configured.replace(/\/+$/, '');
