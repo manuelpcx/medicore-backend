@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   BadRequestException,
   ConflictException,
   ForbiddenException,
@@ -27,6 +28,8 @@ export interface MinorView {
 
 @Injectable()
 export class MinorsService {
+  private readonly logger = new Logger(MinorsService.name);
+
   constructor(
     @InjectRepository(Patient) private patientRepo: Repository<Patient>,
     @InjectRepository(Exam) private examRepo: Repository<Exam>,
@@ -48,6 +51,23 @@ export class MinorsService {
   }
 
   async create(user: User, dto: CreateMinorDto): Promise<Patient> {
+    // R1/R2/R3 (#27) — gate de plan: solo un titular con plan familiar crea
+    // menores (revierte la decisión A de #21; mismo patrón que
+    // FamilyService.invite()). Se evalúa ANTES de cualquier otra validación.
+    if (user.plan !== 'family') {
+      // R6/R7 (#27) — downgrade: si ya tenía grupo pero perdió el plan, solo
+      // advertencia (sin lógica de resolución), igual patrón que invite().
+      const hasGroup = await this.family.hasExistingGroup(user.id);
+      if (hasGroup) {
+        this.logger.warn(
+          `El titular ${user.id} tiene un grupo familiar pero ya no tiene plan 'family' (downgrade, MinorsService)`,
+        );
+      }
+      throw new ForbiddenException(
+        'Solo un titular con plan familiar puede crear el perfil de un menor',
+      );
+    }
+
     // R11 — consentimiento obligatorio.
     if (dto.consentimiento !== true) {
       throw new BadRequestException(

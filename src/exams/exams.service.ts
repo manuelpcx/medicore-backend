@@ -3,9 +3,10 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { Not, IsNull, Repository } from 'typeorm';
 import { Exam } from './entities/exam.entity';
 import { Patient } from '../patients/entities/patient.entity';
+import { User } from '../auth/entities/user.entity';
 import { CreateExamDto } from './dto/create-exam.dto';
 import { join, isAbsolute } from 'path';
 import { existsSync, unlinkSync, openSync, readSync, closeSync } from 'fs';
@@ -36,9 +37,12 @@ function detectMimeFromMagicBytes(filePath: string): string | null {
 
 @Injectable()
 export class ExamsService {
+  private static readonly FREE_EXAM_FILE_LIMIT = 4;
+
   constructor(
     @InjectRepository(Exam) private repo: Repository<Exam>,
     @InjectRepository(Patient) private patientRepo: Repository<Patient>,
+    @InjectRepository(User) private userRepo: Repository<User>,
   ) {}
 
   private async pid(userId: string, patientId?: string | null) {
@@ -64,6 +68,33 @@ export class ExamsService {
     );
   }
 
+  /**
+   * Tope de exámenes CON archivo para el plan free (R1, R2, R5, R6): 4
+   * exámenes con archivo por paciente activo. Pro/Family quedan ilimitados.
+   * Solo se invoca cuando llega un archivo (create() la llama dentro de
+   * `if (file)`), así que los exámenes sin archivo nunca la disparan (R4).
+   */
+  private async assertExamFileQuota(
+    userId: string,
+    patientId: string,
+    file: Express.Multer.File,
+  ): Promise<void> {
+    const user = await this.userRepo.findOne({ where: { id: userId } });
+    if (user?.plan !== 'free') return; // R5
+
+    const count = await this.repo.count({
+      where: { patient_id: patientId, archivo_path: Not(IsNull()) }, // R6
+    });
+    if (count >= ExamsService.FREE_EXAM_FILE_LIMIT) {
+      const full = this.resolveFilePath(file.path);
+      if (existsSync(full)) unlinkSync(full); // R3 (borra huérfano, mismo patrón que magic-bytes)
+      throw new ForbiddenException(
+        `Tu plan Free permite hasta ${ExamsService.FREE_EXAM_FILE_LIMIT} exámenes con archivo. ` +
+          'Actualiza tu plan para subir más exámenes.', // R1, R2
+      );
+    }
+  }
+
   async create(
     userId: string,
     dto: CreateExamDto,
@@ -73,6 +104,7 @@ export class ExamsService {
     const id = await this.pid(userId, patientId);
     let mimetype: string | undefined;
     if (file) {
+      await this.assertExamFileQuota(userId, id, file); // R1, R2, R3, R5, R6
       const detected = detectMimeFromMagicBytes(this.resolveFilePath(file.path)); // R5
       if (!detected || detected !== file.mimetype) {                              // R7, R8
         const full = this.resolveFilePath(file.path);

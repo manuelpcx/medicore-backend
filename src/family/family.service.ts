@@ -109,6 +109,19 @@ export class FamilyService {
     };
   }
 
+  // ── Downgrade helper reutilizable (#27, R6, R7) ─────────────────────────────
+  /**
+   * Consulta si el usuario ya tiene un FamilyGroup propio, SIN crearlo (a
+   * diferencia de getQuota(), que crea el grupo de forma perezosa). Se usa
+   * para decidir si procede loguear una advertencia de downgrade cuando el
+   * gate de plan de otro flujo (p. ej. MinorsService.create()) rechaza la
+   * petición.
+   */
+  async hasExistingGroup(ownerId: string): Promise<boolean> {
+    const group = await this.groupRepo.findOne({ where: { owner_id: ownerId } });
+    return !!group;
+  }
+
   // ── POST /family/invite (R9–R16, R35) ──────────────────────────────────────
   async invite(user: User, dto: InviteDto): Promise<FamilyMember> {
     // R10/R35: solo el owner con plan family invita.
