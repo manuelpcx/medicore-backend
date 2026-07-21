@@ -42,6 +42,38 @@ export class FamilyService {
     private readonly config: ConfigService,
   ) {}
 
+  // ── URL pública base para enlaces de cara al usuario (#24) ──────────────────
+  /**
+   * Resuelve la URL pública base (sin barra final) para construir enlaces de
+   * cara al usuario (p. ej. el acceptUrl de invitación). Prioridad:
+   *   1. APP_URL (variable dedicada opcional), normalizada con trim.
+   *   2. Primer origen de CORS_ORIGIN (CSV), normalizado con trim.
+   *   3. Fallback local 'http://localhost:5173'.
+   * No exige ninguna variable nueva: con solo CORS_ORIGIN funciona.
+   */
+  private resolvePublicBaseUrl(): string {
+    const stripTrailingSlash = (value: string): string =>
+      value.replace(/\/+$/, '');
+
+    // 1. APP_URL (override opcional). (R6)
+    const appUrl = this.config.get<string>('APP_URL')?.trim();
+    if (appUrl) {
+      return stripTrailingSlash(appUrl);
+    }
+
+    // 2. Primer origen de CORS_ORIGIN (CSV), con trim. (R1, R2, R3)
+    const corsOrigin = this.config.get<string>('CORS_ORIGIN');
+    if (corsOrigin) {
+      const firstOrigin = corsOrigin.split(',')[0].trim();
+      if (firstOrigin) {
+        return stripTrailingSlash(firstOrigin);
+      }
+    }
+
+    // 3. Fallback local. (R4)
+    return 'http://localhost:5173';
+  }
+
   // ── Cupo unificado (R3, R10) ────────────────────────────────────────────────
   /**
    * Cupo unificado del titular. Crea el grupo de forma perezosa si no existe
@@ -124,8 +156,7 @@ export class FamilyService {
     // R14/R16: email-sin-cuenta → email de invitación en try/catch que no rompe.
     if (!existing) {
       try {
-        const base =
-          this.config.get<string>('CORS_ORIGIN') ?? 'http://localhost:5173';
+        const base = this.resolvePublicBaseUrl();
         const acceptUrl = `${base}/family/accept/${member.id}`;
         await this.notifications.sendFamilyInvitation({
           email,
