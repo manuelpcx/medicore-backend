@@ -1,6 +1,7 @@
 import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createHmac } from 'crypto';
+import { FlowApiError } from './flow-api.error';
 
 /**
  * Cliente HTTP para la API de Flow.cl (pagos recurrentes, planes pro/family).
@@ -115,6 +116,18 @@ export class FlowClientService {
         // ignorar: el detalle es solo para el log
       }
       this.logger.error(`Flow respondió ${res.status} en ${url}: ${detail}`);
+      // Body JSON parseable a objeto → error tipado inspeccionable por
+      // PaymentsService (R1). NUNCA debe llegar crudo al cliente HTTP.
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(detail);
+      } catch {
+        parsed = undefined;
+      }
+      if (parsed !== null && typeof parsed === 'object') {
+        throw new FlowApiError(res.status, parsed as Record<string, any>);
+      }
+      // Body no parseable: 503 genérica idéntica a hoy (R2).
       throw new ServiceUnavailableException('Flow no está disponible en este momento. Intenta nuevamente.');
     }
 
@@ -137,6 +150,36 @@ export class FlowClientService {
       externalId: input.externalId,
     });
     return { customerId: String(res.customerId ?? res.id ?? '') };
+  }
+
+  /**
+   * GET /customer/list — paginado {total, hasMore, data[]}. `limit` máx 100.
+   * `start`/`limit` van como strings dentro de la firma HMAC (todo `sign()`
+   * opera sobre Record<string, string>).
+   */
+  async listCustomers(input: { start: number; limit: number }): Promise<{
+    total: number;
+    hasMore: boolean;
+    data: Record<string, any>[];
+  }> {
+    const res = await this.get('/customer/list', {
+      start: String(input.start),
+      limit: String(input.limit),
+    });
+    return {
+      total: Number(res.total ?? 0),
+      hasMore: Boolean(res.hasMore),
+      data: Array.isArray(res.data) ? (res.data as Record<string, any>[]) : [],
+    };
+  }
+
+  /**
+   * GET /customer/get — mismo shape de customer que customer/list
+   * (customerId, externalId, email, name, status, y creditCardType /
+   * last4CardDigits / registerDate cuando ya hay tarjeta registrada).
+   */
+  async getCustomer(customerId: string): Promise<Record<string, any>> {
+    return this.get('/customer/get', { customerId });
   }
 
   async registerCustomer(input: {

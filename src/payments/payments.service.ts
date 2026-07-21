@@ -11,6 +11,7 @@ import { DataSource, In, Repository } from 'typeorm';
 import { Subscription, SubscriptionPlan } from './entities/subscription.entity';
 import { User } from '../auth/entities/user.entity';
 import { FlowClientService } from './flow-client.service';
+import { FlowApiError } from './flow-api.error';
 
 @Injectable()
 export class PaymentsService {
@@ -52,18 +53,64 @@ export class PaymentsService {
     let flowCustomerId = previous?.flow_customer_id ?? null;
 
     if (!flowCustomerId) {
-      const { customerId } = await this.flow.createCustomer({
-        name: user.nombre,
-        email: user.email,
-        externalId: user.id,
-      });
-      flowCustomerId = customerId;
+      try {
+        const { customerId } = await this.flow.createCustomer({
+          name: user.nombre,
+          email: user.email,
+          externalId: user.id,
+        });
+        flowCustomerId = customerId;
+      } catch (err) {
+        if (!this.isCustomerExistsError(err)) this.sanitizeFlowError(err);
+        // Flow ya tiene un customer con este externalId (intento previo cuya
+        // fila local ya no existe): recuperarlo vía customer/list (R6–R8).
+        flowCustomerId = await this.recoverCustomerId(user);
+        if (!flowCustomerId) {
+          throw new ServiceUnavailableException(
+            'No pudimos recuperar tu registro de pago en Flow. Intenta nuevamente más tarde.',
+          ); // R10 — caso anómalo, sin crash, nada activado
+        }
+      }
     }
 
-    const { url, token } = await this.flow.registerCustomer({
-      customerId: flowCustomerId,
-      urlReturn: `${this.apiPublicUrl()}/payments/register-return`, // R11: el token llega por POST aquí
-    });
+    // R11 — inspeccionar el customer ANTES de decidir el paso de registro.
+    let customer: Record<string, any>;
+    try {
+      customer = await this.flow.getCustomer(flowCustomerId);
+    } catch (err) {
+      this.sanitizeFlowError(err); // R20 — fallo de Flow → 503 genérica, sin crash
+    }
+
+    if (this.hasRegisteredCard(customer)) {
+      // Tarjeta YA registrada en Flow (intento previo completado): saltar
+      // customer/register y activar de inmediato (R12–R16). La fila pending se
+      // persiste ANTES de llamar a Flow para que el método compartido opere
+      // sobre una entidad real (igual que el webhook); si subscription/create
+      // falla, queda pending sin plan activado (fail-closed, R16) y el
+      // supersede de #34 la marcará expired en el siguiente intento (R18).
+      const sub = await this.subRepo.save(
+        this.subRepo.create({
+          user_id: user.id,
+          plan,
+          flow_customer_id: flowCustomerId,
+          status: 'pending', // sin flow_register_token: no hay registro de tarjeta
+        }),
+      );
+      await this.createFlowSubscriptionAndActivate(sub); // R12–R14, R16
+      return { checkout_url: `${this.frontendBaseUrl()}/elegir-plan` }; // R15 — contrato intacto
+    }
+
+    // Tarjeta NO registrada → flujo actual idéntico (R17).
+    let url: string;
+    let token: string;
+    try {
+      ({ url, token } = await this.flow.registerCustomer({
+        customerId: flowCustomerId,
+        urlReturn: `${this.apiPublicUrl()}/payments/register-return`, // R11 de #34: el token llega por POST aquí
+      }));
+    } catch (err) {
+      this.sanitizeFlowError(err);
+    }
 
     await this.subRepo.save(
       this.subRepo.create({
@@ -73,14 +120,19 @@ export class PaymentsService {
         flow_register_token: token,
         status: 'pending',
       }),
-    ); // R8, R11 — no toca user.plan (el plan de Flow se resuelve de nuevo al confirmar, R15)
+    ); // no toca user.plan (el plan de Flow se resuelve de nuevo al confirmar)
 
     return { checkout_url: `${url}?token=${token}` };
   }
 
   // ── Webhook (R13–R18) ───────────────────────────────────────────────────────
   async handleWebhook(token: string): Promise<{ message: string }> {
-    const status = await this.flow.getRegisterStatus(token); // R14 — SIEMPRE reconsulta
+    let status: Record<string, any>;
+    try {
+      status = await this.flow.getRegisterStatus(token); // R14 — SIEMPRE reconsulta
+    } catch (err) {
+      this.sanitizeFlowError(err); // ningún FlowApiError sale del service (R4, R21)
+    }
     const sub = await this.subRepo.findOne({ where: { flow_register_token: token } });
 
     if (!sub) {
@@ -97,19 +149,7 @@ export class PaymentsService {
       return { message: 'OK' }; // R16 — nunca activa
     }
 
-    const { subscriptionId } = await this.flow.createSubscription({
-      customerId: sub.flow_customer_id!,
-      planId: this.resolveFlowPlanId(sub.plan),
-    });
-    const details = await this.flow.getSubscription(subscriptionId);
-
-    await this.dataSource.transaction(async (trx) => {
-      sub.status = 'active';
-      sub.flow_subscription_id = subscriptionId;
-      sub.current_period_end = this.parsePeriodEnd(details); // null + warning si el campo no viene
-      await trx.save(sub);
-      await trx.update(User, { id: sub.user_id }, { plan: sub.plan });
-    }); // R15 — atómico: Subscription + User.plan
+    await this.createFlowSubscriptionAndActivate(sub); // mismo bloque de siempre, ahora compartido (R14)
 
     return { message: 'OK' };
   }
@@ -169,7 +209,11 @@ export class PaymentsService {
     }
 
     // Si falla, lanza (503) ANTES de tocar la BD local (R24).
-    await this.flow.cancelSubscription(sub.flow_subscription_id!);
+    try {
+      await this.flow.cancelSubscription(sub.flow_subscription_id!);
+    } catch (err) {
+      this.sanitizeFlowError(err); // ningún FlowApiError sale del service (R4, R21)
+    }
 
     sub.cancel_at_period_end = true;
     await this.subRepo.save(sub); // R22 — status y user.plan NO cambian aquí
@@ -179,7 +223,101 @@ export class PaymentsService {
     };
   }
 
+  // ── Activación compartida (R13–R14, R16) ────────────────────────────────────
+  /**
+   * subscription/create + subscription/get + transacción atómica que activa el
+   * plan: sub.status='active', flow_subscription_id, current_period_end
+   * (parsePeriodEnd, defensivo) y User.plan. Compartido por handleWebhook()
+   * y por la rama de activación inmediata de checkout() (R13-R14). Los
+   * FlowApiError internos se sanean a 503 genérica (R4). Nada se activa si
+   * createSubscription lanza (fail-closed, R16).
+   */
+  private async createFlowSubscriptionAndActivate(sub: Subscription): Promise<void> {
+    let subscriptionId: string;
+    let details: Record<string, any>;
+    try {
+      ({ subscriptionId } = await this.flow.createSubscription({
+        customerId: sub.flow_customer_id!,
+        planId: this.resolveFlowPlanId(sub.plan),
+      }));
+      details = await this.flow.getSubscription(subscriptionId);
+    } catch (err) {
+      this.sanitizeFlowError(err);
+    }
+
+    await this.dataSource.transaction(async (trx) => {
+      sub.status = 'active';
+      sub.flow_subscription_id = subscriptionId;
+      sub.current_period_end = this.parsePeriodEnd(details); // null + warning si el campo no viene
+      await trx.save(sub);
+      await trx.update(User, { id: sub.user_id }, { plan: sub.plan });
+    }); // atómico: Subscription + User.plan
+  }
+
   // ── Helpers ──────────────────────────────────────────────────────────────────
+
+  /**
+   * Re-lanza cualquier FlowApiError como 503 genérica; lo demás pasa tal cual
+   * (R4). Garantiza que el body/message crudos de Flow NUNCA llegan al
+   * cliente HTTP (R5) y que ningún endpoint degrada a 500 por un FlowApiError
+   * fugado (R21).
+   */
+  private sanitizeFlowError(err: unknown): never {
+    if (err instanceof FlowApiError) {
+      throw new ServiceUnavailableException(
+        'Flow no está disponible en este momento. Intenta nuevamente.',
+      );
+    }
+    throw err;
+  }
+
+  /** true si el FlowApiError es el rechazo por externalId duplicado (R6). */
+  private isCustomerExistsError(err: unknown): err is FlowApiError {
+    return (
+      err instanceof FlowApiError &&
+      typeof err.body?.message === 'string' &&
+      err.body.message.includes('customer with this externalId')
+    );
+  }
+
+  /**
+   * Pagina customer/list (limit 100, start incremental) y devuelve el
+   * customerId cuyo `data[].externalId === user.id`, o null si se agota
+   * (R7-R8). Match EXCLUSIVAMENTE por externalId: ni name, ni email, ni el
+   * parámetro `filter` (que filtra por nombre y no es criterio de identidad).
+   * Tope defensivo de 50 páginas (5.000 customers) contra respuestas
+   * malformadas; un fallo de listCustomers se sanea a 503 genérica (R20).
+   */
+  private async recoverCustomerId(user: User): Promise<string | null> {
+    const limit = 100;
+    const maxPages = 50;
+    for (let page = 0; page < maxPages; page++) {
+      let res: { total: number; hasMore: boolean; data: Record<string, any>[] };
+      try {
+        res = await this.flow.listCustomers({ start: page * limit, limit });
+      } catch (err) {
+        this.sanitizeFlowError(err); // R20
+      }
+      const match = res.data.find((c) => String(c.externalId) === user.id);
+      if (match) {
+        const customerId = String(match.customerId ?? '');
+        return customerId || null; // sin customerId utilizable → caso anómalo (R10)
+      }
+      if (!res.hasMore || res.data.length === 0) break; // agotado sin match
+    }
+    return null;
+  }
+
+  /**
+   * true si el customer de Flow ya tiene tarjeta registrada (R12). Fail-safe
+   * deliberado: ante shape inesperado (campos ausentes, null, '') devuelve
+   * false y el flujo cae en la rama actual de customer/register (R17), que es
+   * la segura — registrar tarjeta de nuevo es siempre válido para Flow;
+   * activar sin confirmación no.
+   */
+  private hasRegisteredCard(customer: Record<string, any>): boolean {
+    return Boolean(customer?.creditCardType) || Boolean(customer?.registerDate);
+  }
 
   /** Resuelve el id del Plan de Flow correspondiente; 503 sin red si falta (R6). */
   private resolveFlowPlanId(plan: SubscriptionPlan): string {
