@@ -1,12 +1,13 @@
 import {
   Injectable,
   Logger,
+  BadRequestException,
   ConflictException,
   UnauthorizedException,
   NotFoundException,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { MoreThan, Repository } from 'typeorm';
+import { In, MoreThan, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { ConfigService } from '@nestjs/config';
 import * as bcrypt from 'bcrypt';
@@ -17,6 +18,7 @@ import { User } from './entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { Patient } from '../patients/entities/patient.entity';
 import { Exam } from '../exams/entities/exam.entity';
+import { Subscription } from '../payments/entities/subscription.entity';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { RecaptchaService } from './recaptcha.service';
@@ -36,6 +38,8 @@ export class AuthService {
     private patientRepo: Repository<Patient>,
     @InjectRepository(Exam)
     private examRepo: Repository<Exam>,
+    @InjectRepository(Subscription)
+    private subscriptionRepo: Repository<Subscription>,
     private jwtService: JwtService,
     private config: ConfigService,
     private recaptcha: RecaptchaService,
@@ -72,14 +76,38 @@ export class AuthService {
   }
 
   /**
-   * Elige o cambia el plan de la cuenta. Activación directa, sin pasarela de
-   * pago (R9, R12). Registra advertencia si baja de `family` (R13).
+   * Elige o cambia el plan de la cuenta.
+   *
+   * `pro`/`family` YA NO se activan directo por este endpoint: requieren
+   * pasar por `POST /payments/checkout` (pago con Flow) (R30). `free` sigue
+   * siendo instantáneo, sin pasarela de pago, PERO solo si el usuario no
+   * tiene una suscripción de pago vigente (`pending`/`active`/`past_due`):
+   * si la tiene, debe cancelarla primero vía
+   * `POST /payments/subscription/cancel` (R31, R32).
    */
   async updatePlan(userId: string, plan: 'free' | 'pro' | 'family') {
     const user = await this.userRepo.findOne({ where: { id: userId } });
     if (!user) throw new NotFoundException('Usuario no encontrado');
 
-    if (user.plan === 'family' && plan !== 'family') {
+    if (plan === 'pro' || plan === 'family') {
+      throw new BadRequestException(
+        'Para activar el plan pro o family debes completar el pago: usa POST /payments/checkout.',
+      ); // R30
+    }
+
+    // plan === 'free'
+    const vigente = await this.subscriptionRepo.findOne({
+      where: { user_id: userId, status: In(['pending', 'active', 'past_due']) },
+    });
+    if (vigente) {
+      throw new BadRequestException(
+        'Ya tienes una suscripción de pago en curso. Usa POST /payments/subscription/cancel; ' +
+          'conservarás tu plan hasta el fin del periodo ya pagado.',
+      ); // R32
+    }
+
+    // plan ya está narrowed a 'free' en este punto (pro/family lanzaron arriba).
+    if (user.plan === 'family') {
       this.logger.warn(
         `Usuario ${user.id} baja de plan 'family' a '${plan}' (downgrade)`,
       );
@@ -88,7 +116,7 @@ export class AuthService {
     user.plan = plan;
     await this.userRepo.save(user);
 
-    return { user: this.sanitize(user), message: 'Plan actualizado' };
+    return { user: this.sanitize(user), message: 'Plan actualizado' }; // R31
   }
 
   async login(dto: LoginDto) {

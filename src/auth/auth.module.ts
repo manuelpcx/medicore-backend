@@ -10,10 +10,11 @@ import { User } from './entities/user.entity';
 import { RefreshToken } from './entities/refresh-token.entity';
 import { Patient } from '../patients/entities/patient.entity';
 import { Exam } from '../exams/entities/exam.entity';
+import { Subscription } from '../payments/entities/subscription.entity';
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([User, RefreshToken, Patient, Exam]),
+    TypeOrmModule.forFeature([User, RefreshToken, Patient, Exam, Subscription]),
     PassportModule,
     JwtModule.register({}),
   ],
