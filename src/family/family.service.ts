@@ -77,7 +77,11 @@ export class FamilyService {
   // ── Cupo unificado (R3, R10) ────────────────────────────────────────────────
   /**
    * Cupo unificado del titular. Crea el grupo de forma perezosa si no existe
-   * (misma mecánica que invite()), sin exigir plan family (decisión A de #21).
+   * (misma mecánica que invite()). Este método en sí mismo NO exige plan
+   * family (decisión A de #21): sigue sin comprobar user.plan. Desde #27,
+   * sus dos únicos llamadores actuales — MinorsService.create() e invite() —
+   * YA verifican user.plan === 'family' y lanzan ForbiddenException ANTES de
+   * invocarlo, por lo que en la práctica nadie llega aquí sin plan family.
    */
   async getQuota(ownerId: string): Promise<FamilyQuota> {
     let group = await this.groupRepo.findOne({ where: { owner_id: ownerId } });

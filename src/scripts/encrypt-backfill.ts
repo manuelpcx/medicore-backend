@@ -15,7 +15,7 @@ import 'reflect-metadata';
 import { DataSource, Repository, ObjectLiteral } from 'typeorm';
 import * as dotenv from 'dotenv';
 import { join } from 'path';
-dotenv.config();
+dotenv.config({ quiet: true });
 
 import { assertEncryptionKey } from '../common/crypto/encryption';
 import { User } from '../auth/entities/user.entity';

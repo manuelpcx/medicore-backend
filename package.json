@@ -39,6 +39,7 @@
     "class-validator": "^0.15.1",
     "date-fns": "^4.4.0",
     "date-fns-tz": "^3.2.0",
+    "dotenv": "^17.4.1",
     "helmet": "^8.2.0",
     "multer": "^1.4.5-lts.1",
     "passport": "^0.7.0",

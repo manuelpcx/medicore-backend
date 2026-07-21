@@ -12,7 +12,7 @@ import { DataSource } from 'typeorm';
 import * as dotenv from 'dotenv';
 import { join } from 'path';
 
-dotenv.config();
+dotenv.config({ quiet: true });
 
 const isProd = process.env.NODE_ENV === 'production';
 

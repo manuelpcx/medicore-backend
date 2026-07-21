@@ -18,7 +18,7 @@ import { DataSource } from 'typeorm';
 import * as bcrypt from 'bcrypt';
 import * as dotenv from 'dotenv';
 import { join } from 'path';
-dotenv.config();
+dotenv.config({ quiet: true });
 
 import { User } from '../auth/entities/user.entity';
 import { Patient } from '../patients/entities/patient.entity';
