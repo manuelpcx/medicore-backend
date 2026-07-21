@@ -11,8 +11,10 @@ import { User } from '../../auth/entities/user.entity';
 import { FamilyMember } from './family-member.entity';
 
 /**
- * Grupo familiar. El titular (owner) con plan `family` puede invitar hasta
- * `max_members - 1` miembros (tope de 4 incluido el titular).
+ * Grupo familiar. El titular (owner) es el contenedor del cupo unificado del
+ * plan: `max_members` es el tope total (5 = titular + 4), que abarca tanto los
+ * `FamilyMember` (pending/accepted) como los menores dependientes
+ * (Patient is_minor con owner_id = titular). Ver #21 (cupo-familiar-unificado).
  */
 @Entity('family_groups')
 export class FamilyGroup {
@@ -26,7 +28,7 @@ export class FamilyGroup {
   @JoinColumn({ name: 'owner_id' })
   owner: User;
 
-  @Column({ type: 'int', default: 4 })
+  @Column({ type: 'int', default: 5 })
   max_members: number;
 
   @CreateDateColumn({ type: 'timestamptz' })

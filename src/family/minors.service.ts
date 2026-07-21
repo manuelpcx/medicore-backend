@@ -13,8 +13,7 @@ import { Patient } from '../patients/entities/patient.entity';
 import { Exam } from '../exams/entities/exam.entity';
 import { User } from '../auth/entities/user.entity';
 import { CreateMinorDto } from './dto/create-minor.dto';
-
-const MAX_MINORS = 5;
+import { FamilyService } from './family.service';
 
 export interface MinorView {
   id: string;
@@ -31,6 +30,7 @@ export class MinorsService {
   constructor(
     @InjectRepository(Patient) private patientRepo: Repository<Patient>,
     @InjectRepository(Exam) private examRepo: Repository<Exam>,
+    private readonly family: FamilyService,
   ) {}
 
   /** Edad cumplida a la fecha `at` a partir de una fecha de nacimiento. */
@@ -72,13 +72,13 @@ export class MinorsService {
       );
     }
 
-    // R10 — tope de 5 menores por adulto.
-    const count = await this.patientRepo.count({
-      where: { owner_id: user.id, is_minor: true },
-    });
-    if (count >= MAX_MINORS) {
+    // R6/R7/R10/R11 — cupo unificado del plan familiar: el menor cuenta contra
+    // max_members junto a los miembros invitados. Crea el grupo del titular de
+    // forma perezosa (decisión A de #21) sin exigir plan family.
+    const quota = await this.family.getQuota(user.id);
+    if (quota.available < 1) {
       throw new ConflictException(
-        `Has alcanzado el máximo de ${MAX_MINORS} menores.`,
+        'Has alcanzado el cupo del plan familiar (miembros y menores).',
       );
     }
 

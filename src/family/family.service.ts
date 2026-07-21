@@ -9,10 +9,21 @@ import { ConfigService } from '@nestjs/config';
 import { InjectRepository } from '@nestjs/typeorm';
 import { In, Repository } from 'typeorm';
 import { User } from '../auth/entities/user.entity';
+import { Patient } from '../patients/entities/patient.entity';
 import { FamilyGroup } from './entities/family-group.entity';
 import { FamilyMember } from './entities/family-member.entity';
 import { InviteDto } from './dto/invite.dto';
 import { NotificationsService } from '../notifications/notifications.service';
+
+/** Cupo unificado del titular (#21): 1 titular + miembros + menores. */
+export interface FamilyQuota {
+  group: FamilyGroup; // grupo (creado perezosamente si no existía)
+  max_members: number; // tope (5 por defecto)
+  members: number; // FamilyMember pending/accepted (ocupan cupo)
+  minors: number; // Patient is_minor con owner_id = titular
+  occupied: number; // 1 (titular) + members + minors
+  available: number; // max_members - occupied
+}
 
 @Injectable()
 export class FamilyService {
@@ -25,9 +36,46 @@ export class FamilyService {
     private readonly memberRepo: Repository<FamilyMember>,
     @InjectRepository(User)
     private readonly userRepo: Repository<User>,
+    @InjectRepository(Patient)
+    private readonly patientRepo: Repository<Patient>,
     private readonly notifications: NotificationsService,
     private readonly config: ConfigService,
   ) {}
+
+  // ── Cupo unificado (R3, R10) ────────────────────────────────────────────────
+  /**
+   * Cupo unificado del titular. Crea el grupo de forma perezosa si no existe
+   * (misma mecánica que invite()), sin exigir plan family (decisión A de #21).
+   */
+  async getQuota(ownerId: string): Promise<FamilyQuota> {
+    let group = await this.groupRepo.findOne({ where: { owner_id: ownerId } });
+    if (!group) {
+      // Usa el DEFAULT de la columna (5); no se hardcodea el tope aquí.
+      group = await this.groupRepo.save(
+        this.groupRepo.create({ owner_id: ownerId }),
+      );
+    }
+
+    const members = await this.memberRepo.count({
+      where: {
+        family_group_id: group.id,
+        status: In(['pending', 'accepted']),
+      },
+    });
+    const minors = await this.patientRepo.count({
+      where: { owner_id: ownerId, is_minor: true },
+    });
+
+    const occupied = 1 + members + minors;
+    return {
+      group,
+      max_members: group.max_members,
+      members,
+      minors,
+      occupied,
+      available: group.max_members - occupied,
+    };
+  }
 
   // ── POST /family/invite (R9–R16, R35) ──────────────────────────────────────
   async invite(user: User, dto: InviteDto): Promise<FamilyMember> {
@@ -48,26 +96,13 @@ export class FamilyService {
       );
     }
 
-    // R11: creación perezosa del grupo del titular.
-    let group = await this.groupRepo.findOne({
-      where: { owner_id: user.id },
-    });
-    if (!group) {
-      group = await this.groupRepo.save(
-        this.groupRepo.create({ owner_id: user.id, max_members: 4 }),
-      );
-    }
-
-    // R12: tope de max_members total (titular + miembros pending/accepted).
-    const occupied = await this.memberRepo.count({
-      where: {
-        family_group_id: group.id,
-        status: In(['pending', 'accepted']),
-      },
-    });
-    if (occupied >= group.max_members - 1) {
+    // R3/R4: cupo unificado (crea el grupo perezosamente si no existe). Cuenta
+    // titular + miembros(pending/accepted) + menores contra max_members.
+    const quota = await this.getQuota(user.id);
+    const group = quota.group;
+    if (quota.available < 1) {
       throw new BadRequestException(
-        'El grupo familiar ya alcanzó su número máximo de miembros',
+        'El grupo familiar ya alcanzó su cupo máximo (miembros y menores).',
       );
     }
 
@@ -193,9 +228,10 @@ export class FamilyService {
     });
     if (!group) throw new NotFoundException('Grupo familiar no encontrado');
 
-    const acceptedCount = await this.memberRepo.count({
-      where: { family_group_id: group.id, status: 'accepted' },
-    });
+    // R9: desglose del cupo unificado desde el punto de vista del titular del
+    // grupo (owner_id), no del solicitante, para que miembros y titular vean lo
+    // mismo. getQuota() no crea grupo aquí porque el owner ya lo tiene.
+    const quota = await this.getQuota(group.owner_id);
 
     return {
       id: group.id,
@@ -203,9 +239,11 @@ export class FamilyService {
         id: group.owner?.id ?? group.owner_id,
         nombre: group.owner?.nombre ?? null,
       },
-      max_members: group.max_members,
-      members: acceptedCount,
-      available: group.max_members - (1 + acceptedCount),
+      max_members: quota.max_members,
+      members: quota.members, // pending + accepted (ocupan cupo)
+      minors: quota.minors, // menores dependientes
+      occupied: quota.occupied, // 1 + members + minors
+      available: quota.available,
     };
   }
 
