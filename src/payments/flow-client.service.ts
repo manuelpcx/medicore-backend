@@ -230,14 +230,16 @@ export class FlowClientService {
   }
 
   /**
-   * Cancela una suscripción en Flow. Endpoint NO confirmado con certeza
-   * contra la documentación real (design.md §8, punto 1): se usa el
-   * candidato más probable por el patrón CRUD ya observado en otros recursos
-   * de Flow (`plans/delete`, `customer/delete`) → `subscription/delete`. Si
-   * el nombre real difiere, es un cambio de una sola línea (el `path` de
-   * abajo), sin afectar el resto del diseño.
+   * Cancela una suscripción en Flow. Endpoint CONFIRMADO contra
+   * `developers.flow.cl/en/api` (listado completo de los 12 endpoints del
+   * recurso `subscription/*`): `POST /subscription/cancel` ("Cancela una
+   * suscripción"), con los parámetros `apiKey`, `subscriptionId`, `s` —
+   * exactamente los que este método ya enviaba. `/subscription/delete` (el
+   * candidato usado antes de esta corrección) NO existe como recurso; en
+   * producción devolvía 400 `{"code":105,"message":"No services available"}`
+   * (evidencia real de Railway, ver specs/fix-cancel-endpoint-y-customer-activo/).
    */
   async cancelSubscription(subscriptionId: string): Promise<void> {
-    await this.post('/subscription/delete', { subscriptionId });
+    await this.post('/subscription/cancel', { subscriptionId });
   }
 }

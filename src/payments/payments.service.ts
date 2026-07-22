@@ -309,14 +309,21 @@ export class PaymentsService {
   }
 
   /**
-   * true si el customer de Flow ya tiene tarjeta registrada (R12). Fail-safe
-   * deliberado: ante shape inesperado (campos ausentes, null, '') devuelve
-   * false y el flujo cae en la rama actual de customer/register (R17), que es
-   * la segura — registrar tarjeta de nuevo es siempre válido para Flow;
-   * activar sin confirmación no.
+   * true si el customer de Flow ya tiene tarjeta registrada Y está activo
+   * (R12). Exige `status === 1` ADEMÁS de los metadatos de tarjeta
+   * (creditCardType/registerDate): un customer puede conservar metadatos de
+   * un registro de tarjeta INCOMPLETO (previo a los fixes #33/#34) sin estar
+   * activo en Flow — evidencia real de Railway: `subscription/create` sobre
+   * ese customer respondió 400 `{"code":1001,"message":"The customer is not
+   * active"}`. Fail-safe deliberado: ante shape inesperado (campos ausentes,
+   * null, '', o `status` ausente) devuelve false y el flujo cae en la rama
+   * actual de customer/register (R17), que es la segura — registrar tarjeta
+   * de nuevo es siempre válido para Flow; activar sin confirmación no.
    */
   private hasRegisteredCard(customer: Record<string, any>): boolean {
-    return Boolean(customer?.creditCardType) || Boolean(customer?.registerDate);
+    const hasCardMetadata = Boolean(customer?.creditCardType) || Boolean(customer?.registerDate);
+    const isActive = customer?.status === 1;
+    return hasCardMetadata && isActive;
   }
 
   /** Resuelve el id del Plan de Flow correspondiente; 503 sin red si falta (R6). */
