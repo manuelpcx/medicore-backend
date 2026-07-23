@@ -15,9 +15,13 @@ export class PaymentsController {
   @Post('checkout')
   @HttpCode(200)
   @ApiBearerAuth()
-  @ApiOperation({ summary: 'Crear la suscripción de pago y devolver la URL de checkout (init_point) de MercadoPago' })
+  @ApiOperation({
+    summary:
+      'Tokeniza la tarjeta (card_token_id generado por el Brick CardPayment del frontend) y activa ' +
+      'la suscripción de forma síncrona contra MercadoPago (POST /preapproval, status: authorized)',
+  })
   checkout(@CurrentUser() user: User, @Body() dto: CheckoutDto) {
-    return this.service.checkout(user, dto.plan); // JwtAuthGuard global ya exige sesión (sin @Public())
+    return this.service.checkout(user, dto.plan, dto.card_token_id); // JwtAuthGuard global ya exige sesión (sin @Public())
   }
 
   @Public()

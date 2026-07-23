@@ -15,12 +15,16 @@ export interface CreateMercadoPagoSubscriptionInput {
   externalReference: string;
   autoRecurring: MercadoPagoAutoRecurring;
   backUrl: string;
+  cardTokenId: string;
 }
 
 export interface MercadoPagoSubscriptionCreated {
   id: string;
   init_point: string;
   status: string;
+  /** Fecha del próximo cobro, si MercadoPago la devuelve. Usado por
+   * `parsePeriodEnd()` en el flujo síncrono de checkout con tarjeta. */
+  next_payment_date?: string;
 }
 
 /**
@@ -140,13 +144,15 @@ export class MercadoPagoClientService {
 
   /**
    * POST /preapproval — crea la suscripción "sin plan asociado" (SIN
-   * `preapproval_plan_id`, SIN `card_token_id`) con `status: 'pending'`
-   * explícito (ver `specs/fix-mercadopago-preapproval-sin-plan/design.md`
-   * §1–§2): confirmado contra el schema oficial en vivo que `card_token_id`
-   * solo lo exige el estado `authorized`, no `pending` — una `preapproval`
-   * `pending` queda "esperando" un medio de pago que el propio pagador
-   * aporta en el `init_point` alojado por MercadoPago (checkout 100%
-   * redirect, sin SDK de frontend).
+   * `preapproval_plan_id`) CON `card_token_id` + `status: 'authorized'`
+   * explícito (ver `specs/mercadopago-checkout-bricks-tarjeta/design.md`
+   * §0, Fuente C): confirmado contra el schema OpenAPI oficial en vivo,
+   * acotando el bloque `requestBody`, que `POST /preapproval` NO exige
+   * `issuer_id`/`payment_method_id`/`payment_method_option_id`/
+   * `installments` (a diferencia de `POST /v1/payments`) — solo
+   * `card_token_id` sumado a los campos ya usados por el flujo anterior.
+   * El `card_token_id` lo genera el Brick `<CardPayment>` del lado del
+   * frontend; nunca es el número de tarjeta/CVV crudo.
    */
   async createSubscription(
     input: CreateMercadoPagoSubscriptionInput,
@@ -159,7 +165,8 @@ export class MercadoPagoClientService {
         external_reference: input.externalReference,
         auto_recurring: input.autoRecurring,
         back_url: input.backUrl,
-        status: 'pending',
+        card_token_id: input.cardTokenId,
+        status: 'authorized',
       }),
     });
     const id = res.id;
@@ -170,7 +177,12 @@ export class MercadoPagoClientService {
       );
       throw new ServiceUnavailableException('MercadoPago no confirmó la creación de la suscripción.');
     }
-    return { id: String(id), init_point: String(initPoint), status: String(res.status ?? 'pending') };
+    return {
+      id: String(id),
+      init_point: String(initPoint),
+      status: String(res.status ?? 'pending'),
+      next_payment_date: typeof res.next_payment_date === 'string' ? res.next_payment_date : undefined,
+    };
   }
 
   /** GET /preapproval/{id} — estado autoritativo de la suscripción (nunca confiar solo en el webhook). */

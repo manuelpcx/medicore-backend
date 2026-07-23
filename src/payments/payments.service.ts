@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   ConflictException,
@@ -9,7 +10,7 @@ import {
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
 import { DataSource, In, Repository } from 'typeorm';
-import { Subscription, SubscriptionPlan } from './entities/subscription.entity';
+import { Subscription, SubscriptionPlan, SubscriptionStatus } from './entities/subscription.entity';
 import { User } from '../auth/entities/user.entity';
 import {
   MercadoPagoAutoRecurring,
@@ -27,6 +28,19 @@ export interface HandleWebhookInput {
   dataIdQueryParam: string | undefined;
 }
 
+/**
+ * Forma de retorno de `getSubscription()` y (desde esta feature) también de
+ * `checkout()`: el frontend consume el mismo tipo `SubscriptionState` en
+ * ambos casos (ver `specs/mercadopago-checkout-bricks-tarjeta/design.md`
+ * §3). `plan: 'free'` + `status: null` representa "sin suscripción vigente".
+ */
+export interface SubscriptionState {
+  plan: SubscriptionPlan | 'free';
+  status: SubscriptionStatus | null;
+  current_period_end: Date | null;
+  cancel_at_period_end: boolean;
+}
+
 @Injectable()
 export class PaymentsService {
   private readonly logger = new Logger(PaymentsService.name);
@@ -41,8 +55,16 @@ export class PaymentsService {
     private readonly config: ConfigService,
   ) {}
 
-  // ── Checkout ──────────────────────────────────────────────────────────────
-  async checkout(user: User, plan: SubscriptionPlan): Promise<{ checkout_url: string }> {
+  // ── Checkout (síncrono, con tokenización de tarjeta) ─────────────────────
+  /**
+   * `card_token_id` viene del Brick `<CardPayment>` de `@mercadopago/sdk-react`
+   * en el frontend (nunca datos crudos de tarjeta). Llama a `POST
+   * /preapproval` de forma SÍNCRONA con `card_token_id` + `status:
+   * 'authorized'` y solo persiste la `Subscription` como `active` DESPUÉS de
+   * recibir esa respuesta — nunca antes (a diferencia del flujo redirect de
+   * `#41`/`#42`, ver design.md §8 punto 4).
+   */
+  async checkout(user: User, plan: SubscriptionPlan, cardTokenId: string): Promise<SubscriptionState> {
     this.mercadoPago.assertConfigured();
 
     const vigentes = await this.subRepo.find({
@@ -65,21 +87,39 @@ export class PaymentsService {
         externalReference: user.id,
         autoRecurring: this.buildAutoRecurring(plan),
         backUrl: `${this.frontendBaseUrl()}/elegir-plan`,
-      }); // POST /preapproval "sin plan asociado", SIN preapproval_plan_id ni card_token_id, status: 'pending'
+        cardTokenId,
+      }); // POST /preapproval "sin plan asociado", CON card_token_id, status: 'authorized'
     } catch (err) {
-      this.sanitizeMercadoPagoError(err);
+      this.sanitizeCheckoutError(err);
     }
 
-    await this.subRepo.save(
-      this.subRepo.create({
-        user_id: user.id,
-        plan,
-        mp_preapproval_id: created.id,
-        status: 'pending',
-      }),
-    );
+    if (created.status !== 'authorized') {
+      // 2xx pero no autorizado: NO se persiste nada como activo (R16).
+      this.logger.warn(
+        `POST /preapproval devolvió status='${created.status}' (no 'authorized') para user ${user.id}, plan ${plan}. mp_preapproval_id=${created.id}`,
+      );
+      throw new BadRequestException('El pago no quedó confirmado. Intenta nuevamente.');
+    }
 
-    return { checkout_url: created.init_point };
+    const sub = this.subRepo.create({
+      user_id: user.id,
+      plan,
+      mp_preapproval_id: created.id,
+      status: 'active',
+      current_period_end: this.parsePeriodEnd(created),
+    });
+
+    await this.dataSource.transaction(async (trx) => {
+      await trx.save(sub); // R15 — atómico: Subscription 'active' + User.plan
+      await trx.update(User, { id: user.id }, { plan });
+    });
+
+    return {
+      plan: sub.plan,
+      status: sub.status,
+      current_period_end: sub.current_period_end,
+      cancel_at_period_end: sub.cancel_at_period_end,
+    };
   }
 
   // ── Webhook (R9–R18) ─────────────────────────────────────────────────────
@@ -147,7 +187,7 @@ export class PaymentsService {
   }
 
   // ── Consultar estado (R19) ───────────────────────────────────────────────
-  async getSubscription(user: User) {
+  async getSubscription(user: User): Promise<SubscriptionState> {
     const sub = await this.subRepo.findOne({
       where: { user_id: user.id, status: In(this.VIGENTE) },
       order: { created_at: 'DESC' },
@@ -208,6 +248,37 @@ export class PaymentsService {
       );
     }
     throw err;
+  }
+
+  /**
+   * Variante de `sanitizeMercadoPagoError()` usada SOLO por `checkout()`
+   * (ver design.md §5): distingue 4xx (rechazo de negocio — tarjeta
+   * inválida, datos rechazados) de 5xx (indisponibilidad de MercadoPago),
+   * porque el checkout con tarjeta necesita mostrarle al usuario un mensaje
+   * accionable ("tarjeta rechazada, intenta con otra") en vez del genérico
+   * 503 que sí basta para el resto del flujo (webhook/cancel).
+   */
+  private sanitizeCheckoutError(err: unknown): never {
+    if (err instanceof MercadoPagoApiError) {
+      if (err.status >= 400 && err.status < 500) {
+        const body = err.body as { message?: unknown; error?: unknown } | undefined;
+        const detail =
+          typeof body?.message === 'string'
+            ? body.message
+            : typeof body?.error === 'string'
+              ? body.error
+              : undefined;
+        throw new BadRequestException(
+          detail ??
+            'MercadoPago rechazó la tarjeta o los datos de pago. Verifica los datos e intenta con otra tarjeta.',
+        ); // R17 — nunca el body crudo, pero SÍ el detalle si viene
+      }
+      throw new ServiceUnavailableException(
+        'MercadoPago no está disponible en este momento. Intenta nuevamente.',
+      ); // R18 — 5xx / cuerpo no parseable
+    }
+    throw err; // errores no tipados (red/timeout) ya vienen como
+    // ServiceUnavailableException desde mercadopago-client.service.ts
   }
 
   /**
