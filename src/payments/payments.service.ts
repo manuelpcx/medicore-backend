@@ -12,8 +12,8 @@ import { DataSource, In, Repository } from 'typeorm';
 import { Subscription, SubscriptionPlan } from './entities/subscription.entity';
 import { User } from '../auth/entities/user.entity';
 import {
+  MercadoPagoAutoRecurring,
   MercadoPagoClientService,
-  MercadoPagoPlan,
   MercadoPagoSubscriptionCreated,
 } from './mercadopago-client.service';
 import { MercadoPagoApiError } from './mercadopago-api.error';
@@ -41,36 +41,31 @@ export class PaymentsService {
     private readonly config: ConfigService,
   ) {}
 
-  // ── Checkout (R2, R3, R5–R8) ─────────────────────────────────────────────
+  // ── Checkout ──────────────────────────────────────────────────────────────
   async checkout(user: User, plan: SubscriptionPlan): Promise<{ checkout_url: string }> {
-    this.mercadoPago.assertConfigured(); // R2
+    this.mercadoPago.assertConfigured();
 
     const vigentes = await this.subRepo.find({
       where: { user_id: user.id, status: In(this.VIGENTE) },
     });
     const bloqueante = vigentes.find((s) => s.status === 'active' || s.status === 'past_due');
     if (bloqueante) {
-      throw new ConflictException('Ya tienes una suscripción en curso.'); // R5 (409, sin regresión)
+      throw new ConflictException('Ya tienes una suscripción en curso.'); // 409, sin regresión
     }
     for (const stuck of vigentes) {
-      stuck.status = 'expired'; // R8 — intento previo 'pending' que nunca se completó
+      stuck.status = 'expired'; // intento previo 'pending' que nunca se completó
     }
     if (vigentes.length) await this.subRepo.save(vigentes);
 
-    const planId = this.resolveMercadoPagoPlanId(plan); // R3
-
-    let planDetails: MercadoPagoPlan;
     let created: MercadoPagoSubscriptionCreated;
     try {
-      planDetails = await this.mercadoPago.getPlan(planId); // R6(a) — GET /preapproval_plan/{id}
       created = await this.mercadoPago.createSubscription({
-        preapprovalPlanId: planId,
-        reason: planDetails.reason,
+        reason: this.planReason(plan),
         payerEmail: user.email,
         externalReference: user.id,
-        autoRecurring: planDetails.auto_recurring,
+        autoRecurring: this.buildAutoRecurring(plan),
         backUrl: `${this.frontendBaseUrl()}/elegir-plan`,
-      }); // R6(b) — POST /preapproval, SIN card_token_id ni status (R7)
+      }); // POST /preapproval "sin plan asociado", SIN preapproval_plan_id ni card_token_id, status: 'pending'
     } catch (err) {
       this.sanitizeMercadoPagoError(err);
     }
@@ -82,9 +77,9 @@ export class PaymentsService {
         mp_preapproval_id: created.id,
         status: 'pending',
       }),
-    ); // R6(c)
+    );
 
-    return { checkout_url: created.init_point }; // R6(d)
+    return { checkout_url: created.init_point };
   }
 
   // ── Webhook (R9–R18) ─────────────────────────────────────────────────────
@@ -215,16 +210,25 @@ export class PaymentsService {
     throw err;
   }
 
-  /** Resuelve el id del Plan de MercadoPago correspondiente; 503 sin red si falta (R3). */
-  private resolveMercadoPagoPlanId(plan: SubscriptionPlan): string {
-    const key = plan === 'pro' ? 'MERCADOPAGO_PLAN_ID_PRO' : 'MERCADOPAGO_PLAN_ID_FAMILY';
-    const value = this.config.get<string>(key);
-    if (!value) {
-      throw new ServiceUnavailableException(
-        `Pagos con MercadoPago no están disponibles para el plan '${plan}' en este entorno (falta ${key}).`,
-      );
-    }
-    return value;
+  /**
+   * Arma `auto_recurring` directamente (sin consultar `GET
+   * /preapproval_plan/{id}`, retirado en el fix de
+   * `fix-mercadopago-preapproval-sin-plan`): mismos montos que
+   * `medicore-frontend/src/utils/plans.ts` ya muestra al usuario (Pro
+   * $4.990/mes, Family $8.990/mes, CLP sin decimales).
+   */
+  private buildAutoRecurring(plan: SubscriptionPlan): MercadoPagoAutoRecurring {
+    return {
+      frequency: 1,
+      frequency_type: 'months',
+      transaction_amount: plan === 'pro' ? 4990 : 8990,
+      currency_id: 'CLP',
+    };
+  }
+
+  /** Razón/descripción de la suscripción mostrada por MercadoPago en el checkout. */
+  private planReason(plan: SubscriptionPlan): string {
+    return plan === 'pro' ? 'Medicore Plan Pro' : 'Medicore Plan Family';
   }
 
   /**

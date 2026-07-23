@@ -9,14 +9,7 @@ export interface MercadoPagoAutoRecurring {
   currency_id: string;
 }
 
-export interface MercadoPagoPlan {
-  id: string;
-  reason: string;
-  auto_recurring: MercadoPagoAutoRecurring;
-}
-
 export interface CreateMercadoPagoSubscriptionInput {
-  preapprovalPlanId: string;
   reason: string;
   payerEmail: string;
   externalReference: string;
@@ -145,29 +138,15 @@ export class MercadoPagoClientService {
 
   // ── Recursos de la API de MercadoPago ───────────────────────────────────
 
-  /** GET /preapproval_plan/{id} — lee `reason`/`auto_recurring` del plan ya creado. */
-  async getPlan(planId: string): Promise<MercadoPagoPlan> {
-    const res = await this.request<Record<string, any>>(
-      `/preapproval_plan/${encodeURIComponent(planId)}`,
-      { method: 'GET' },
-    );
-    return {
-      id: String(res.id ?? planId),
-      reason: String(res.reason ?? ''),
-      auto_recurring: {
-        frequency: Number(res.auto_recurring?.frequency ?? 1),
-        frequency_type: String(res.auto_recurring?.frequency_type ?? 'months'),
-        transaction_amount: Number(res.auto_recurring?.transaction_amount ?? 0),
-        currency_id: String(res.auto_recurring?.currency_id ?? 'CLP'),
-      },
-    };
-  }
-
   /**
-   * POST /preapproval — crea la suscripción. SIN `card_token_id` ni `status`
-   * en el body (decisión de diseño, ver design.md §2): esto crea una
-   * `preapproval` `pending` con `init_point`, donde MercadoPago aloja el
-   * formulario de pago (checkout 100% redirect).
+   * POST /preapproval — crea la suscripción "sin plan asociado" (SIN
+   * `preapproval_plan_id`, SIN `card_token_id`) con `status: 'pending'`
+   * explícito (ver `specs/fix-mercadopago-preapproval-sin-plan/design.md`
+   * §1–§2): confirmado contra el schema oficial en vivo que `card_token_id`
+   * solo lo exige el estado `authorized`, no `pending` — una `preapproval`
+   * `pending` queda "esperando" un medio de pago que el propio pagador
+   * aporta en el `init_point` alojado por MercadoPago (checkout 100%
+   * redirect, sin SDK de frontend).
    */
   async createSubscription(
     input: CreateMercadoPagoSubscriptionInput,
@@ -175,12 +154,12 @@ export class MercadoPagoClientService {
     const res = await this.request<Record<string, any>>('/preapproval', {
       method: 'POST',
       body: JSON.stringify({
-        preapproval_plan_id: input.preapprovalPlanId,
         reason: input.reason,
         payer_email: input.payerEmail,
         external_reference: input.externalReference,
         auto_recurring: input.autoRecurring,
         back_url: input.backUrl,
+        status: 'pending',
       }),
     });
     const id = res.id;
