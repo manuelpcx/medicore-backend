@@ -9,10 +9,11 @@ import {
 } from '@nestjs/common';
 import { InjectRepository, InjectDataSource } from '@nestjs/typeorm';
 import { ConfigService } from '@nestjs/config';
-import { DataSource, In, Repository } from 'typeorm';
+import { DataSource, In, IsNull, LessThan, Not, Repository } from 'typeorm';
 import { Subscription, SubscriptionPlan, SubscriptionStatus } from './entities/subscription.entity';
 import { User } from '../auth/entities/user.entity';
 import {
+  MercadoPagoAuthorizedPayment,
   MercadoPagoAutoRecurring,
   MercadoPagoClientService,
   MercadoPagoSubscriptionCreated,
@@ -60,9 +61,19 @@ export class PaymentsService {
    * `card_token_id` viene del Brick `<CardPayment>` de `@mercadopago/sdk-react`
    * en el frontend (nunca datos crudos de tarjeta). Llama a `POST
    * /preapproval` de forma SÍNCRONA con `card_token_id` + `status:
-   * 'authorized'` y solo persiste la `Subscription` como `active` DESPUÉS de
-   * recibir esa respuesta — nunca antes (a diferencia del flujo redirect de
-   * `#41`/`#42`, ver design.md §8 punto 4).
+   * 'authorized'` y persiste la `Subscription` recién DESPUÉS de recibir esa
+   * respuesta — nunca antes (a diferencia del flujo redirect de `#41`/`#42`,
+   * ver design.md §8 punto 4).
+   *
+   * IMPORTANTE (desde `mercadopago-activar-plan-en-cobro-real`, R1-R4): la
+   * respuesta síncrona `status:'authorized'` de `POST /preapproval` SOLO
+   * confirma que la TARJETA es válida (a veces un cargo de validación de
+   * $0) — NO que el cobro real del monto del plan se realizó. Por eso la
+   * `Subscription` se crea en `'pending'`, SIN tocar `User.plan`; el plan
+   * solo se activa cuando el webhook `subscription_authorized_payment` (o la
+   * reconciliación de respaldo) confirma el cobro real contra
+   * `GET /authorized_payments/{id}` — ver `handleAuthorizedPaymentWebhook()`
+   * y `reconcilePendingPayments()` más abajo.
    */
   async checkout(user: User, plan: SubscriptionPlan, cardTokenId: string): Promise<SubscriptionState> {
     this.mercadoPago.assertConfigured();
@@ -105,32 +116,32 @@ export class PaymentsService {
       user_id: user.id,
       plan,
       mp_preapproval_id: created.id,
-      status: 'active',
+      status: 'pending', // R1 — YA NO 'active': solo confirma que la tarjeta es válida, no el cobro real.
       current_period_end: this.parsePeriodEnd(created),
     });
-
-    await this.dataSource.transaction(async (trx) => {
-      await trx.save(sub); // R15 — atómico: Subscription 'active' + User.plan
-      await trx.update(User, { id: user.id }, { plan });
-    });
+    await this.subRepo.save(sub); // R2 — User.plan NO se toca aquí (se activa vía webhook/reconciliación)
 
     return {
       plan: sub.plan,
       status: sub.status,
       current_period_end: sub.current_period_end,
       cancel_at_period_end: sub.cancel_at_period_end,
-    };
+    }; // R3
   }
 
-  // ── Webhook (R9–R18) ─────────────────────────────────────────────────────
+  // ── Webhook (R5–R13, R28, R31) ────────────────────────────────────────────
   /**
-   * `POST /payments/webhook`, público (R9). Valida la firma `x-signature`
-   * ANTES de procesar el body (R10, R11); si el tipo no es
-   * `subscription_preapproval` no hace nada (R12); busca la Subscription
-   * local por `mp_preapproval_id` (R13); si no es `pending` no hace nada
-   * (idempotencia, R14); SIEMPRE reconsulta el estado autoritativo contra
-   * MercadoPago antes de activar (R15) y aplica el mapeo de estados
-   * (R16–R18).
+   * `POST /payments/webhook`, público. Valida la firma `x-signature` ANTES
+   * de procesar el body (R28, sin cambios respecto a `#41`/`#42`); despacha
+   * por `type`:
+   * - `'subscription_authorized_payment'` → `handleAuthorizedPaymentWebhook()`
+   *   (cobro real de un ciclo de facturación, esta feature).
+   * - ausente o `'subscription_preapproval'` → lógica ya existente desde
+   *   `#41` (cambios de autorización/cancelación de la suscripción), SIN
+   *   cambios de comportamiento.
+   * - cualquier otro `type` → 200 sin acción (R31, fuera de alcance: `payment`,
+   *   `merchant_order`, `subscription_preapproval_plan`,
+   *   `point_integration_wh`, `chargebacks`, `delivery`, ...).
    */
   async handleWebhook(input: HandleWebhookInput): Promise<{ message: string }> {
     const secret = this.config.get<string>('MERCADOPAGO_WEBHOOK_SECRET');
@@ -144,24 +155,33 @@ export class PaymentsService {
       this.logger.warn(
         'Webhook de MercadoPago rechazado: firma x-signature inválida, ausente o MERCADOPAGO_WEBHOOK_SECRET no configurado.',
       );
-      throw new UnauthorizedException('Firma inválida.'); // R11 — sin filtrar detalle interno, nada modificado
+      throw new UnauthorizedException('Firma inválida.'); // R28 — sin filtrar detalle interno, nada modificado
     }
 
     const { dto } = input;
-    if (dto.type && dto.type !== 'subscription_preapproval') {
-      return { message: 'OK' }; // R12 — fuera de alcance (payment, subscription_authorized_payment, ...)
+    const type = dto.type;
+
+    if (type === 'subscription_authorized_payment') {
+      await this.handleAuthorizedPaymentWebhook(dto.data.id); // R5–R13
+      return { message: 'OK' };
     }
 
+    if (type && type !== 'subscription_preapproval') {
+      return { message: 'OK' }; // R31 — fuera de alcance
+    }
+
+    // type ausente o 'subscription_preapproval' — lógica EXISTENTE desde
+    // #41/#42, sin cambios de comportamiento (verificación #43/#44).
     const sub = await this.subRepo.findOne({ where: { mp_preapproval_id: dto.data.id } });
     if (!sub) {
       this.logger.warn(`Webhook con data.id sin Subscription local asociada: ${dto.data.id}`);
-      return { message: 'OK' }; // R13 — sin reintento en bucle
+      return { message: 'OK' }; // sin reintento en bucle
     }
     if (sub.status !== 'pending') {
-      return { message: 'OK' }; // R14 — idempotencia; cancel()/PaymentsScheduler gobiernan lo posterior
+      return { message: 'OK' }; // idempotencia; cancel()/PaymentsScheduler gobiernan lo posterior
     }
 
-    // R15 — SIEMPRE reconsultar el estado autoritativo, nunca confiar en el payload del webhook.
+    // SIEMPRE reconsultar el estado autoritativo, nunca confiar en el payload del webhook.
     let authoritative: Record<string, any>;
     try {
       authoritative = await this.mercadoPago.getSubscription(sub.mp_preapproval_id!);
@@ -171,19 +191,177 @@ export class PaymentsService {
 
     const status = authoritative.status;
     if (status === 'authorized') {
-      await this.dataSource.transaction(async (trx) => {
-        sub.status = 'active';
-        sub.current_period_end = this.parsePeriodEnd(authoritative); // null + warning si no es fecha válida
-        await trx.save(sub);
-        await trx.update(User, { id: sub.user_id }, { plan: sub.plan });
-      }); // R16 — atómico: Subscription + User.plan
+      await this.activateSubscription(sub); // reemplaza el bloque inline anterior (T4), mismo comportamiento observable
     } else if (status === 'cancelled') {
       sub.status = 'expired';
-      await this.subRepo.save(sub); // R17 — NO activa el plan
+      await this.subRepo.save(sub); // NO activa el plan
     }
-    // R18 — 'pending'/'paused': sin cambios, se espera próxima notificación o polling del frontend.
+    // 'pending'/'paused': sin cambios, se espera próxima notificación o polling del frontend.
 
     return { message: 'OK' };
+  }
+
+  /**
+   * Núcleo del manejo de `subscription_authorized_payment` (R5–R13).
+   * `dataId` = `dto.data.id` = id del PAGO/FACTURA (`AuthorizedPayment`), NO
+   * de la suscripción — se usa exclusivamente para llamar
+   * `GET /authorized_payments/{dataId}` (R5); la correlación con la
+   * `Subscription` local usa el `preapproval_id` que ESA respuesta trae
+   * (R7), nunca `dataId` directamente (el punto más propenso a confusión de
+   * toda la feature, ver design.md §1.2).
+   */
+  private async handleAuthorizedPaymentWebhook(dataId: string): Promise<void> {
+    let authorizedPayment: MercadoPagoAuthorizedPayment;
+    try {
+      authorizedPayment = await this.mercadoPago.getAuthorizedPayment(dataId); // R5, R6 — SIEMPRE re-consulta
+    } catch (err) {
+      this.sanitizeMercadoPagoError(err);
+    }
+
+    const preapprovalId = authorizedPayment.preapproval_id; // R7 — NUNCA dataId
+    if (!preapprovalId) {
+      this.logger.warn(
+        `GET /authorized_payments/${dataId} no devolvió preapproval_id (status=${authorizedPayment.status}); no se puede correlacionar con ninguna Subscription local.`,
+      );
+      return; // R8 — sin acción
+    }
+
+    const sub = await this.findSubscriptionByPreapprovalIdWithRetry(preapprovalId); // R9
+    if (!sub) {
+      this.logger.warn(
+        `Webhook subscription_authorized_payment: no se encontró Subscription local para preapproval_id=${preapprovalId} tras reintento acotado (dataId=${dataId}).`,
+      );
+      return; // R8 — 200 sin acción, sin reintentar en un bucle posterior (lo cubre reconcilePendingPayments())
+    }
+    if (sub.status !== 'pending') {
+      return; // R10 — idempotencia (reenvíos del mismo webhook o pagos de ciclos posteriores)
+    }
+
+    if (typeof authorizedPayment.transaction_amount === 'number') {
+      const expected = this.buildAutoRecurring(sub.plan).transaction_amount;
+      if (authorizedPayment.transaction_amount !== expected) {
+        // Solo informativo (design.md §0/§7.3) — no bloquea la activación.
+        this.logger.warn(
+          `AuthorizedPayment ${authorizedPayment.id} (preapproval_id=${preapprovalId}) trae transaction_amount=${authorizedPayment.transaction_amount}, distinto del monto esperado del plan ${sub.plan} (${expected}).`,
+        );
+      }
+    }
+
+    switch (authorizedPayment.status) {
+      case 'processed':
+        await this.activateSubscription(sub); // R11, R14
+        break;
+      case 'cancelled':
+        sub.status = 'payment_failed';
+        await this.subRepo.save(sub); // R12 — User.plan sin tocar
+        break;
+      case 'scheduled':
+      case 'recycling':
+      default:
+        // R13 — sin acción; se espera una notificación posterior o la reconciliación de respaldo.
+        break;
+    }
+  }
+
+  /**
+   * Busca la `Subscription` local por `mp_preapproval_id` con reintento
+   * acotado (R9): hasta 3 intentos con ~400ms de espera entre ellos
+   * (≈800ms total, dentro del ~1.5s máximo de R9) — mitiga la condición de
+   * carrera entre el `INSERT` de `checkout()` y una entrega muy rápida del
+   * webhook.
+   */
+  private async findSubscriptionByPreapprovalIdWithRetry(
+    preapprovalId: string,
+  ): Promise<Subscription | null> {
+    const MAX_ATTEMPTS = 3;
+    const DELAY_MS = 400;
+    for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+      const sub = await this.subRepo.findOne({ where: { mp_preapproval_id: preapprovalId } });
+      if (sub) return sub;
+      if (attempt < MAX_ATTEMPTS) {
+        await this.sleep(DELAY_MS);
+      }
+    }
+    return null;
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /**
+   * Activación compartida (R11, R14): usada tanto por el webhook
+   * `subscription_authorized_payment` como por `reconcilePendingPayments()`.
+   * Marca `Subscription.status='active'` + `User.plan` en una transacción;
+   * recalcula `current_period_end` vía `GET /preapproval/{id}` (mismo
+   * mecanismo que ya usa la rama `subscription_preapproval`), sin bloquear
+   * la activación si ese dato no está disponible o no es una fecha válida.
+   */
+  private async activateSubscription(sub: Subscription): Promise<void> {
+    let periodEnd: Date | null = null;
+    try {
+      const authoritative = await this.mercadoPago.getSubscription(sub.mp_preapproval_id!);
+      periodEnd = this.parsePeriodEnd(authoritative); // null + warning si no es fecha válida
+    } catch (err) {
+      this.logger.warn(
+        `No se pudo recalcular current_period_end vía GET /preapproval/${sub.mp_preapproval_id} al activar la Subscription ${sub.id}: ${err instanceof Error ? err.message : String(err)}`,
+      ); // R14 — no bloquea la activación
+    }
+
+    await this.dataSource.transaction(async (trx) => {
+      sub.status = 'active';
+      sub.current_period_end = periodEnd;
+      await trx.save(sub);
+      await trx.update(User, { id: sub.user_id }, { plan: sub.plan });
+    }); // atómico: Subscription 'active' + User.plan
+  }
+
+  // ── Reconciliación de respaldo (R15–R17) ─────────────────────────────────
+  /**
+   * Invocada por `PaymentsScheduler` cada 10 minutos. No depende únicamente
+   * de la entrega del webhook `subscription_authorized_payment` (design.md
+   * §1.5): revisa `Subscription`s `pending` con más de 3 minutos de
+   * antigüedad y consulta si su cobro real ya fue procesado; si una
+   * `Subscription` lleva más de 72h sin resolución, la marca
+   * `'payment_failed'` en vez de dejarla pendiente indefinidamente (R17).
+   * Cada fila se procesa en su propio try/catch (loguea y continúa con las
+   * demás, sin abortar el batch — mismo patrón que
+   * `PaymentsScheduler.handleDowngrade()`).
+   */
+  async reconcilePendingPayments(): Promise<void> {
+    const RECONCILE_AFTER_MS = 3 * 60 * 1000; // 3 minutos
+    const FAIL_AFTER_MS = 72 * 60 * 60 * 1000; // 72 horas (valor conservador, ver design.md §7.2/§7.5)
+
+    const threshold = new Date(Date.now() - RECONCILE_AFTER_MS);
+    const stale = await this.subRepo.find({
+      where: { status: 'pending', mp_preapproval_id: Not(IsNull()), created_at: LessThan(threshold) },
+    });
+    if (stale.length === 0) return;
+
+    this.logger.log(`[Cron] Reconciliando ${stale.length} Subscription(s) pending…`);
+
+    for (const sub of stale) {
+      try {
+        const { results } = await this.mercadoPago.searchAuthorizedPayments({
+          preapprovalId: sub.mp_preapproval_id!,
+          status: 'processed',
+          limit: 1,
+        });
+        if (results.length > 0) {
+          await this.activateSubscription(sub); // R16
+          continue;
+        }
+
+        if (Date.now() - sub.created_at.getTime() >= FAIL_AFTER_MS) {
+          sub.status = 'payment_failed';
+          await this.subRepo.save(sub); // R17 — timeout largo, sin limbo indefinido
+        }
+      } catch (err) {
+        this.logger.error(
+          `Error reconciliando la Subscription ${sub.id} (mp_preapproval_id=${sub.mp_preapproval_id}): ${err instanceof Error ? err.message : String(err)}`,
+        ); // continúa con el resto
+      }
+    }
   }
 
   // ── Consultar estado (R19) ───────────────────────────────────────────────

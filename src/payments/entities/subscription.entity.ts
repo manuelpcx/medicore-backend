@@ -16,7 +16,15 @@ export type SubscriptionStatus =
   | 'active'
   | 'cancelled'
   | 'past_due'
-  | 'expired';
+  | 'expired'
+  // Cobro real (subscription_authorized_payment) rechazado tras una tarjeta
+  // ya verificada, o timeout largo sin resolución (reconciliación, R17).
+  // Distinto de 'expired' (cancelación / intento 'pending' sustituido por
+  // uno nuevo): 'payment_failed' significa específicamente que MercadoPago
+  // intentó cobrar el monto real del plan y no lo logró. No requiere
+  // migración: `status` es `varchar(20)` sin `CHECK` constraint (ver
+  // specs/mercadopago-activar-plan-en-cobro-real/design.md §1.3).
+  | 'payment_failed';
 
 /**
  * Suscripción de pago recurrente (MercadoPago) de un usuario a un plan
