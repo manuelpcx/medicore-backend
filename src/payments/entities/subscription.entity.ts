@@ -19,8 +19,9 @@ export type SubscriptionStatus =
   | 'expired';
 
 /**
- * Suscripción de pago recurrente (Flow.cl) de un usuario a un plan pagado
- * (`pro`|`family`). Ver semántica de `status` en `specs/pagos-flow-suscripciones/design.md` §3.
+ * Suscripción de pago recurrente (MercadoPago) de un usuario a un plan
+ * pagado (`pro`|`family`). Ver semántica de `status` en
+ * `specs/migrar-pagos-a-mercadopago/design.md` §6.
  *
  * "Suscripción vigente" = status IN ('pending', 'active', 'past_due').
  */
@@ -41,18 +42,11 @@ export class Subscription {
   @Column({ type: 'varchar', length: 20 })
   plan: SubscriptionPlan;
 
-  @Column({ type: 'varchar', nullable: true })
-  flow_customer_id: string | null;
-
-  @Column({ type: 'varchar', nullable: true })
-  @Index()
-  flow_subscription_id: string | null;
-
-  // Correlaciona el token que Flow envía al webhook con la fila 'pending'
-  // creada en el checkout (aún no existe flow_subscription_id en ese punto).
+  // Id de la `preapproval` de MercadoPago asociada a esta fila (correlaciona
+  // el webhook y la cancelación con esta Subscription local).
   @Column({ type: 'varchar', nullable: true })
   @Index()
-  flow_register_token: string | null;
+  mp_preapproval_id: string | null;
 
   @Column({ type: 'varchar', length: 20, default: 'pending' })
   status: SubscriptionStatus;
