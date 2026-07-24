@@ -55,7 +55,7 @@ async function bootstrap() {
   // ── Swagger (solo en non-prod para no exponer la especificación) ────────
   if (process.env.NODE_ENV !== 'production') {
     const config = new DocumentBuilder()
-      .setTitle('Medicore API')
+      .setTitle('MediHistory API')
       .setDescription('API de historial médico personal centralizado')
       .setVersion('1.0')
       .addBearerAuth()

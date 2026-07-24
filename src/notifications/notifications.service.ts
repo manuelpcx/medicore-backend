@@ -35,7 +35,7 @@ export class NotificationsService implements OnModuleInit {
     this.apiKey = apiKey;
     this.from = this.config.get<string>(
       'MAIL_FROM',
-      'Medicore <no-reply@medicore.app>',
+      'MediHistory <no-reply@mediHistory.app>',
     );
     // Instanciar el cliente solo si hay key: evita warnings del SDK con
     // `new Resend(undefined)` y deja un flag limpio (`!!this.resend`) que

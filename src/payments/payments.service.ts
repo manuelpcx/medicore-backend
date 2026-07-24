@@ -392,7 +392,7 @@ export class PaymentsService {
 
   /** Razón/descripción de la suscripción mostrada por MercadoPago en el checkout. */
   private planReason(plan: SubscriptionPlan): string {
-    return plan === 'pro' ? 'Medicore Plan Pro' : 'Medicore Plan Family';
+    return plan === 'pro' ? 'MediHistory Plan Pro' : 'MediHistory Plan Family';
   }
 
   /**

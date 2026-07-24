@@ -56,7 +56,7 @@ export function dailyMedsHtml(data: DailyMedsEmailData): string {
               <table cellpadding="0" cellspacing="0" border="0">
                 <tr>
                   <td style="background-color:#2C6E5A; border-radius:10px; padding:8px 18px;">
-                    <span style="color:#ffffff; font-size:20px; font-weight:700; letter-spacing:1px;">Medicore</span>
+                    <span style="color:#ffffff; font-size:20px; font-weight:700; letter-spacing:1px;">MediHistory</span>
                   </td>
                 </tr>
               </table>
@@ -126,7 +126,7 @@ export function dailyMedsHtml(data: DailyMedsEmailData): string {
           <tr>
             <td style="padding:20px 0; text-align:center;">
               <p style="margin:0; color:#A09C96; font-size:12px; line-height:1.6;">
-                Para desactivar los recordatorios, ingresa a tu perfil en Medicore.<br>
+                Para desactivar los recordatorios, ingresa a tu perfil en MediHistory.<br>
                 Este correo fue enviado a ${data.email}
               </p>
             </td>
